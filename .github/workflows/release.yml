@@ -1,0 +1,42 @@
+name: Release Cogmax
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, archive: tar.gz }
+          - { name: macos-x86_64, runner: macos-13, target: x86_64-apple-darwin, archive: tar.gz }
+          - { name: macos-aarch64, runner: macos-14, target: aarch64-apple-darwin, archive: tar.gz }
+          - { name: windows-x86_64, runner: windows-latest, target: x86_64-pc-windows-msvc, archive: zip }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: ${{ matrix.target }} }
+      - run: cargo build --release --locked --package cogmax-cli --target ${{ matrix.target }}
+      - name: Package Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: mkdir -p dist && cp target/${{ matrix.target }}/release/cogmax dist/cogmax && tar -C dist -czf cogmax-${{ matrix.name }}.tar.gz cogmax
+      - name: Package Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force dist | Out-Null; Copy-Item target/${{ matrix.target }}/release/cogmax.exe dist/cogmax.exe; Compress-Archive -Path dist/cogmax.exe -DestinationPath cogmax-${{ matrix.name }}.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: cogmax-${{ matrix.name }}, path: cogmax-${{ matrix.name }}.${{ matrix.archive }} }
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, pattern: cogmax-*, merge-multiple: true }
+      - run: sha256sum dist/* > dist/SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with: { files: dist/*, generate_release_notes: true }

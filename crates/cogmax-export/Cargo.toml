@@ -1,0 +1,14 @@
+[package]
+name = "cogmax-export"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+arrow-array = "56"
+arrow-schema = "56"
+parquet = { version = "56", features = ["arrow"] }
+sha2 = "0.10"
+cogmax-domain = { path = "../cogmax-domain" }
+thiserror = "2"
+

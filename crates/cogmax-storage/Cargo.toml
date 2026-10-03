@@ -1,0 +1,12 @@
+[package]
+name = "cogmax-storage"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde_json = "1"
+cogmax-domain = { path = "../cogmax-domain" }
+thiserror = "2"
+uuid = "1"

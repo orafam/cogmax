@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name="${1:-}"
+shift || true
+
+data_dir="${COGMAX_DATA_DIR:-.cogmax}"
+address="${COGMAX_ADDR:-127.0.0.1:8787}"
+base_url="http://${address}"
+binary="${COGMAX_BIN:-$(cd "$(dirname "$0")/../.." && pwd)/target/debug/cogmax}"
+
+ensure_runtime() {
+  mkdir -p "$data_dir"
+  if curl --silent --fail --max-time 1 "${base_url}/health" >/dev/null 2>&1; then
+    return
+  fi
+  COGMAX_DATA_DIR="$data_dir" COGMAX_ADDR="$address" "$binary" serve \
+    >"${data_dir}/cogmax.log" 2>&1 &
+  for _ in $(seq 1 30); do
+    if curl --silent --fail --max-time 1 "${base_url}/health" >/dev/null 2>&1; then
+      return
+    fi
+    sleep 0.1
+  done
+  echo "Cogmax runtime unavailable" >&2
+  exit 1
+}
+
+scope="${COGMAX_SCOPE:-user:local}"
+project=""
+kind=""
+query=""
+content=""
+memory_kind="Reference"
+
+while (($#)); do
+  case "$1" in
+    --query) query="${2:?missing --query value}"; shift 2 ;;
+    --project) project="${2:?missing --project value}"; shift 2 ;;
+    --kind) kind="${2:?missing --kind value}"; shift 2 ;;
+    --content) content="${2:?missing --content value}"; shift 2 ;;
+    --scope) scope="${2:?missing --scope value}"; shift 2 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+ensure_runtime
+
+case "$command_name" in
+  recall)
+    payload=$(printf '%s' "$query" | jq -Rs --arg scope "$scope" --arg project "$project" --arg kind "$kind" \
+      '{scope:$scope,query:.,kind:(if $kind == "" then null else $kind end),project:(if $project == "" then null else $project end)}')
+    curl --silent --fail -X POST "${base_url}/recall" \
+      -H 'content-type: application/json' -d "$payload"
+    ;;
+  learn)
+    event_id=$(printf '%s' "$content" | sha256sum | awk '{print $1}')
+    payload=$(jq -n --arg event_id "$event_id" --arg scope "$scope" --arg kind "${kind:-$memory_kind}" \
+      --arg content "$content" '{event_id:$event_id,scope:$scope,kind:$kind,content:$content,confidence:"High",authority:"Explicit"}')
+    curl --silent --fail -X POST "${base_url}/learn" \
+      -H 'content-type: application/json' -d "$payload"
+    ;;
+  *)
+    echo "usage: memory recall --query text [--project name] [--kind Kind] | memory learn --content text --kind Kind" >&2
+    exit 2
+    ;;
+esac

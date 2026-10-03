@@ -1,0 +1,7 @@
+[workspace]
+members = ["crates/cogmax-domain", "crates/cogmax-storage", "crates/cogmax-core", "crates/cogmax-api", "crates/cogmax-pipeline", "crates/cogmax-export", "crates/cogmax-cli", "crates/cogmax-discovery"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0"
