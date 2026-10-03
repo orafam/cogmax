@@ -113,4 +113,12 @@ impl MemoryService {
             .set_status(id, MemoryStatus::Revoked)?;
         Ok(())
     }
+
+    pub fn supersede(&self, id: &uuid::Uuid) -> Result<(), CoreError> {
+        self.store
+            .lock()
+            .expect("storage mutex poisoned")
+            .set_status(id, MemoryStatus::Superseded)?;
+        Ok(())
+    }
 }

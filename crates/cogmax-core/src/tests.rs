@@ -74,7 +74,11 @@ fn recall_orders_decisions_and_projects_before_references() {
     for (event, kind, content) in [
         ("reference", MemoryKind::Reference, "Cogmax usa SQLite"),
         ("project", MemoryKind::Project, "Projeto Cogmax usa SQLite"),
-        ("decision", MemoryKind::Decision, "Decisão: Cogmax usa SQLite"),
+        (
+            "decision",
+            MemoryKind::Decision,
+            "Decisão: Cogmax usa SQLite",
+        ),
     ] {
         assert!(service
             .learn(LearnRequest {
@@ -137,4 +141,60 @@ fn recall_can_filter_by_kind_and_project_scope() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].kind, MemoryKind::Project);
     assert_eq!(result[0].scope, project_scope);
+}
+
+#[test]
+fn conflicting_decisions_remain_visible_until_explicitly_superseded() {
+    let service = MemoryService::new(Arc::new(Mutex::new(SqliteStore::in_memory().unwrap())));
+    let scope = MemoryScope::new("user:alice").unwrap();
+    let first = MemoryCandidate::new(
+        "decision-1".into(),
+        scope.clone(),
+        MemoryKind::Decision,
+        "Decisão: usar SQLite".into(),
+    );
+    let second = MemoryCandidate::new(
+        "decision-2".into(),
+        scope.clone(),
+        MemoryKind::Decision,
+        "Decisão: usar DuckDB".into(),
+    );
+    assert!(service
+        .learn(LearnRequest {
+            candidate: first,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+    assert!(service
+        .learn(LearnRequest {
+            candidate: second,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+
+    let decisions = service
+        .recall(RecallRequest {
+            scope: scope.clone(),
+            query: "Decisão".into(),
+            kind: Some(MemoryKind::Decision),
+            project: None,
+        })
+        .unwrap();
+    assert_eq!(decisions.len(), 2);
+
+    service.supersede(&decisions[0].id).unwrap();
+    assert_eq!(
+        service
+            .recall(RecallRequest {
+                scope,
+                query: "Decisão".into(),
+                kind: Some(MemoryKind::Decision),
+                project: None,
+            })
+            .unwrap()
+            .len(),
+        1
+    );
 }
