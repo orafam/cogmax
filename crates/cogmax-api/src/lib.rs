@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     extract::State,
+    http::HeaderMap,
+    http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
@@ -17,6 +19,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone)]
 pub struct ApiState {
     pub service: Arc<MemoryService>,
+    pub api_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,11 +53,15 @@ pub struct LearnInput {
 }
 
 pub fn router(service: Arc<MemoryService>) -> Router {
+    router_with_token(service, std::env::var("COGMAX_API_TOKEN").ok())
+}
+
+pub fn router_with_token(service: Arc<MemoryService>, api_token: Option<String>) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/recall", post(recall))
         .route("/learn", post(learn))
-        .with_state(ApiState { service })
+        .with_state(ApiState { service, api_token })
 }
 
 async fn health() -> &'static str {
@@ -63,8 +70,10 @@ async fn health() -> &'static str {
 
 async fn recall(
     State(state): State<ApiState>,
+    headers: HeaderMap,
     Json(input): Json<RecallInput>,
-) -> Json<RecallOutput> {
+) -> Result<Json<RecallOutput>, StatusCode> {
+    authorize(&headers, &state)?;
     let scope = MemoryScope::new(input.scope).expect("invalid scope");
     let matches = state
         .service
@@ -83,13 +92,18 @@ async fn recall(
         })
         .collect();
     let memories = matches.into_iter().map(|matched| matched.memory).collect();
-    Json(RecallOutput {
+    Ok(Json(RecallOutput {
         memories,
         explanations,
-    })
+    }))
 }
 
-async fn learn(State(state): State<ApiState>, Json(input): Json<LearnInput>) -> Json<bool> {
+async fn learn(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(input): Json<LearnInput>,
+) -> Result<Json<bool>, StatusCode> {
+    authorize(&headers, &state)?;
     let candidate = MemoryCandidate::new(
         input.event_id,
         MemoryScope::new(input.scope).expect("invalid scope"),
@@ -104,18 +118,61 @@ async fn learn(State(state): State<ApiState>, Json(input): Json<LearnInput>) -> 
             authority: input.authority,
         })
         .expect("learn failed");
-    Json(result)
+    Ok(Json(result))
+}
+
+fn authorize(headers: &HeaderMap, state: &ApiState) -> Result<(), StatusCode> {
+    let Some(expected) = state.api_token.as_deref() else {
+        return Ok(());
+    };
+    let provided = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    (provided == Some(expected))
+        .then_some(())
+        .ok_or(StatusCode::UNAUTHORIZED)
 }
 
 pub fn local_router() -> Router {
     let store = Arc::new(Mutex::new(SqliteStore::in_memory().expect("storage")));
-    router(Arc::new(MemoryService::new(store)))
+    router_with_token(Arc::new(MemoryService::new(store)), None)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::{body::Body, http::Request};
+    use cogmax_core::MemoryService;
+    use cogmax_storage::SqliteStore;
+    use tower::ServiceExt;
+
+    use super::router_with_token;
+
     #[test]
     fn local_router_is_constructible() {
         let _ = super::local_router();
+    }
+
+    #[tokio::test]
+    async fn protected_routes_fail_closed_without_bearer_token() {
+        let store = Arc::new(Mutex::new(SqliteStore::in_memory().unwrap()));
+        let app = router_with_token(
+            Arc::new(MemoryService::new(store)),
+            Some("test-token".into()),
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/recall")
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"scope":"user:alice","query":""}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
     }
 }

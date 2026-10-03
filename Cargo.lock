@@ -304,6 +304,8 @@ dependencies = [
  "cogmax-domain",
  "cogmax-storage",
  "serde",
+ "tokio",
+ "tower",
 ]
 
 [[package]]

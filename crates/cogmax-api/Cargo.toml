@@ -10,4 +10,7 @@ serde = { version = "1", features = ["derive"] }
 cogmax-core = { path = "../cogmax-core" }
 cogmax-domain = { path = "../cogmax-domain" }
 cogmax-storage = { path = "../cogmax-storage" }
+tower = "0.5"
 
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
