@@ -1,0 +1,21 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Memory {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  scope     String
+  project   String?
+  kind      String
+  content   String
+  createdAt DateTime @default(now())
+  @@unique([userId, eventId])
+  @@index([userId, scope, createdAt])
+}

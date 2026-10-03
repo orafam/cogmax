@@ -1,2 +1,6 @@
 /target/
 .cogmax/*.sqlite3
+/api/node_modules/
+/api/.next/
+/api/.vercel/
+/api/*.tsbuildinfo
