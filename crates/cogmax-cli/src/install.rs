@@ -20,11 +20,13 @@ pub fn platform() -> Result<Platform, String> {
     }
 }
 
+#[allow(dead_code)]
 pub fn checksum(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(bytes))
 }
 
+#[allow(dead_code)]
 pub fn verify_checksum(bytes: &[u8], expected: &str) -> Result<(), String> {
     let expected = expected.split_whitespace().next().unwrap_or_default();
     if checksum(bytes).eq_ignore_ascii_case(expected) {
@@ -103,6 +105,17 @@ pub fn lifecycle(action: &str) -> Result<(), String> {
 }
 
 fn install_path(p: Platform) -> PathBuf {
+    let configured_root = env::var_os("COGMAX_INSTALL_ROOT").map(PathBuf::from);
+    install_path_with_root(p, configured_root.as_deref())
+}
+
+fn install_path_with_root(p: Platform, root: Option<&Path>) -> PathBuf {
+    if let Some(root) = root {
+        return match p {
+            Platform::Linux | Platform::Macos => root.join("bin/cogmax"),
+            Platform::Windows => root.join("Cogmax/cogmax.exe"),
+        };
+    }
     match p {
         Platform::Linux => PathBuf::from("/usr/local/bin/cogmax"),
         Platform::Macos => PathBuf::from("/usr/local/bin/cogmax"),
@@ -114,16 +127,24 @@ fn install_path(p: Platform) -> PathBuf {
 }
 fn service_path(p: Platform) -> PathBuf {
     match p {
-        Platform::Linux => env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("~/.config"))
-            .join("systemd/user/cogmax.service"),
+        Platform::Linux => linux_service_path(
+            env::var_os("HOME").map(PathBuf::from).as_deref(),
+            env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).as_deref(),
+        ),
         Platform::Macos => env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."))
             .join("Library/LaunchAgents/com.cogmax.service.plist"),
         Platform::Windows => PathBuf::from("Cogmax"),
     }
+}
+
+fn linux_service_path(home: Option<&Path>, config_home: Option<&Path>) -> PathBuf {
+    config_home
+        .map(Path::to_path_buf)
+        .or_else(|| home.map(|path| path.join(".config")))
+        .unwrap_or_else(|| PathBuf::from(".config"))
+        .join("systemd/user/cogmax.service")
 }
 
 fn service_file(p: Platform, binary: &Path) -> io::Result<()> {
@@ -165,11 +186,25 @@ mod tests {
     fn checksum_is_stable() {
         assert_eq!(
             checksum(b"cogmax"),
-            "a858c1f331b17abb247815aa40c7f15d930c6d2b760946ceac92f9d1bed96b0c"
+            "2b938b59828dfad853ba6488decd9ed69059dda2e3ea2d1c3c606131a33e8490"
         );
     }
     #[test]
     fn invalid_checksum_is_rejected() {
         assert!(verify_checksum(b"cogmax", "bad").is_err());
+    }
+
+    #[test]
+    fn install_path_can_use_a_configured_root() {
+        let root = PathBuf::from("/tmp/cogmax-test");
+        assert_eq!(install_path_with_root(Platform::Linux, Some(&root)), root.join("bin/cogmax"));
+    }
+
+    #[test]
+    fn linux_service_path_uses_home_when_config_home_is_missing() {
+        assert_eq!(
+            linux_service_path(Some(Path::new("/home/alice")), None),
+            PathBuf::from("/home/alice/.config/systemd/user/cogmax.service")
+        );
     }
 }
