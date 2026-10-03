@@ -11,11 +11,29 @@ model Memory {
   id        String   @id @default(cuid())
   eventId   String
   userId    String
+  tenantId  String
   scope     String
   project   String?
   kind      String
   content   String
   createdAt DateTime @default(now())
-  @@unique([userId, eventId])
-  @@index([userId, scope, createdAt])
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, userId, eventId])
+  @@index([tenantId, scope, createdAt])
+}
+
+model Tenant {
+  id        String         @id
+  name      String
+  createdAt DateTime       @default(now())
+  members   TenantMember[]
+  memories  Memory[]
+}
+
+model TenantMember {
+  tenantId  String
+  userId    String
+  role      String         @default("member")
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@id([tenantId, userId])
 }
