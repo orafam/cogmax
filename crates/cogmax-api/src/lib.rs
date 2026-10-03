@@ -5,7 +5,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
 use cogmax_core::{LearnRequest, MemoryService, RecallRequest};
 use cogmax_domain::{
     candidate::MemoryCandidate,
@@ -13,6 +12,7 @@ use cogmax_domain::{
     scope::MemoryScope,
 };
 use cogmax_storage::SqliteStore;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -30,6 +30,13 @@ pub struct RecallInput {
 #[derive(Debug, Serialize)]
 pub struct RecallOutput {
     pub memories: Vec<cogmax_domain::memory::Memory>,
+    pub explanations: Vec<RecallExplanation>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecallExplanation {
+    pub memory_id: String,
+    pub reasons: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,16 +66,27 @@ async fn recall(
     Json(input): Json<RecallInput>,
 ) -> Json<RecallOutput> {
     let scope = MemoryScope::new(input.scope).expect("invalid scope");
-    let memories = state
+    let matches = state
         .service
-        .recall(RecallRequest {
+        .recall_explained(RecallRequest {
             scope,
             query: input.query,
             kind: input.kind,
             project: input.project,
         })
         .expect("recall failed");
-    Json(RecallOutput { memories })
+    let explanations = matches
+        .iter()
+        .map(|matched| RecallExplanation {
+            memory_id: matched.memory.id.to_string(),
+            reasons: matched.reasons.clone(),
+        })
+        .collect();
+    let memories = matches.into_iter().map(|matched| matched.memory).collect();
+    Json(RecallOutput {
+        memories,
+        explanations,
+    })
 }
 
 async fn learn(State(state): State<ApiState>, Json(input): Json<LearnInput>) -> Json<bool> {

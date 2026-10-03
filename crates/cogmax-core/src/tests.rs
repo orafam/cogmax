@@ -198,3 +198,45 @@ fn conflicting_decisions_remain_visible_until_explicitly_superseded() {
         1
     );
 }
+
+#[test]
+fn explained_recall_reports_matching_terms_and_scope_filters() {
+    let service = MemoryService::new(Arc::new(Mutex::new(SqliteStore::in_memory().unwrap())));
+    let scope = MemoryScope::new("user:alice").unwrap();
+    let project_scope = MemoryScope::new("user:alice/project:cogmax").unwrap();
+    let memory = MemoryCandidate::new(
+        "explained-1".into(),
+        project_scope,
+        MemoryKind::Decision,
+        "Decisão: usar SQLite no Cogmax".into(),
+    );
+    assert!(service
+        .learn(LearnRequest {
+            candidate: memory,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+
+    let matches = service
+        .recall_explained(RecallRequest {
+            scope,
+            query: "SQLite Cogmax".into(),
+            kind: Some(MemoryKind::Decision),
+            project: Some("cogmax".into()),
+        })
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert!(matches[0]
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("2 termos")));
+    assert!(matches[0]
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("escopo de projeto")));
+    assert!(matches[0]
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("autoridade Explicit")));
+}
