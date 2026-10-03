@@ -15,6 +15,6 @@ export async function authenticatedUser(request: Request) {
   if (!token || !jwks || !issuer || !audience) throw new Error("unauthorized");
   const { payload } = await jwtVerify(token, jwks, { issuer: `${issuer}/`, audience });
   const tenantId = tenantClaim(payload as Record<string, unknown>);
-  if (!payload.sub || !tenantId) throw new Error("tenant claim missing");
+  if (!payload.sub) throw new Error("unauthorized");
   return { userId: payload.sub, tenantId };
 }

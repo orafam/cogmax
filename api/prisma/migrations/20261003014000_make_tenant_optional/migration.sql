@@ -1,0 +1,1 @@
+ALTER TABLE "Memory" ALTER COLUMN "tenantId" DROP NOT NULL;
