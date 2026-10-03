@@ -7,7 +7,14 @@ shift || true
 data_dir="${COGMAX_DATA_DIR:-.cogmax}"
 address="${COGMAX_ADDR:-127.0.0.1:8787}"
 base_url="http://${address}"
-binary="${COGMAX_BIN:-$(cd "$(dirname "$0")/../.." && pwd)/target/debug/cogmax}"
+if [[ -n "${COGMAX_BIN:-}" ]]; then
+  binary="$COGMAX_BIN"
+elif command -v cogmax >/dev/null 2>&1; then
+  binary="$(command -v cogmax)"
+else
+  echo "cogmax binary not found; set COGMAX_BIN or install cogmax" >&2
+  exit 1
+fi
 
 ensure_runtime() {
   mkdir -p "$data_dir"

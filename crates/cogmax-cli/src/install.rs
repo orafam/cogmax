@@ -56,8 +56,29 @@ pub fn install() -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::copy(&binary, &target).map_err(|e| format!("cannot install binary: {e}"))?;
+    install_skill(&target).map_err(|e| format!("cannot install skill: {e}"))?;
     service_file(platform, &target).map_err(|e| format!("cannot configure service: {e}"))?;
     println!("Cogmax installed at {}", target.display());
+    Ok(())
+}
+
+fn install_skill(binary: &Path) -> io::Result<()> {
+    let root = binary
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| io::Error::other("invalid installation path"))?;
+    let skill_root = root.join("share/cogmax/skill");
+    fs::create_dir_all(skill_root.join("scripts"))?;
+    fs::write(skill_root.join("SKILL.md"), include_bytes!("../../../skill/SKILL.md"))?;
+    let script = skill_root.join("scripts/memory");
+    fs::write(&script, include_bytes!("../../../skill/scripts/memory"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&script)?.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(script, permissions)?;
+    }
     Ok(())
 }
 
