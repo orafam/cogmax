@@ -7,7 +7,7 @@ use cogmax_domain::{candidate::MemoryCandidate, memory::MemoryKind, scope::Memor
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgentKind {
     Codex,
     Claude,

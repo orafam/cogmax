@@ -15,6 +15,7 @@ use cogmax_domain::{
 use cogmax_storage::SqliteStore;
 
 mod install;
+mod onboarding;
 
 fn data_path() -> PathBuf {
     env::var_os("COGMAX_DATA_DIR")
@@ -62,12 +63,9 @@ fn discover_command() {
     let home = env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
-    let sources = discover(home);
-    if sources.is_empty() {
-        println!("No agent memory sources found.");
-        return;
-    }
-    for source in sources {
+    let sources = discover(&home);
+    let mut projects_by_agent = std::collections::BTreeMap::new();
+    for source in &sources {
         let projects = MarkdownSource::new(source.agent, &source.root)
             .scan()
             .map(|items| {
@@ -77,18 +75,12 @@ fn discover_command() {
                     .collect::<std::collections::BTreeSet<_>>()
             })
             .unwrap_or_default();
-        println!(
-            "{:?}: {} files at {}{}",
-            source.agent,
-            source.file_count,
-            source.root.display(),
-            if projects.is_empty() {
-                String::new()
-            } else {
-                format!(" ({} projects)", projects.len())
-            }
-        );
+        projects_by_agent.insert(source.agent, projects.len());
     }
+    println!(
+        "{}",
+        onboarding::discovery_report(&sources, &projects_by_agent)
+    );
 }
 
 fn source_pairs(home: &Path) -> Vec<(Box<dyn MemorySource>, Box<dyn MemorySource>)> {
@@ -169,17 +161,9 @@ fn import_command() {
     match mode.as_str() {
         "--preview" => {
             println!(
-                "{} memory files would be imported into {}.",
-                total,
-                scope.as_str()
+                "{}",
+                onboarding::import_preview(total, scope.as_str(), &by_agent, &by_project_kind)
             );
-            for (agent, count) in by_agent {
-                println!("  {agent}: {count} files");
-            }
-            println!("By project and kind:");
-            for ((project, kind), count) in by_project_kind {
-                println!("  {project} / {kind}: {count}");
-            }
         }
         "--apply" => println!("{} memory files processed into {}.", total, scope.as_str()),
         "--rebuild" => println!("{} memory files rebuilt into {}.", total, scope.as_str()),

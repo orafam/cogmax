@@ -15,6 +15,12 @@ API, MCP, banco, jobs ou infraestrutura.
 
 ## Operação
 
+Para trazer memória existente de outros agentes, use primeiro `cogmax discover`
+para identificar fontes locais. Em seguida, confira o plano com
+`cogmax import --preview`. Essa etapa não grava nada. Só execute
+`cogmax import --apply` quando a lista estiver correta; use `--rebuild` apenas
+para reconstruir as memórias inferidas, preservando memórias explícitas.
+
 Quando precisar de contexto, use `skill/scripts/memory` antes de responder:
 
 ```text
