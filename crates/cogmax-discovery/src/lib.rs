@@ -3,8 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use sha2::{Digest, Sha256};
 use cogmax_domain::{candidate::MemoryCandidate, memory::MemoryKind, scope::MemoryScope};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,17 +124,105 @@ impl MemorySource for MarkdownSource {
     }
 }
 
+pub struct JsonSource {
+    agent: AgentKind,
+    root: PathBuf,
+}
+
+impl JsonSource {
+    pub fn new(agent: AgentKind, root: impl Into<PathBuf>) -> Self {
+        Self {
+            agent,
+            root: root.into(),
+        }
+    }
+}
+
+impl MemorySource for JsonSource {
+    fn agent(&self) -> AgentKind {
+        self.agent
+    }
+
+    fn detect(&self) -> Option<DiscoveredSource> {
+        self.root.is_dir().then(|| DiscoveredSource {
+            agent: self.agent,
+            root: self.root.clone(),
+            file_count: collect_files(&self.root)
+                .iter()
+                .filter(|path| path.extension().is_some_and(|e| e == "json"))
+                .count(),
+        })
+    }
+
+    fn scan(&self) -> Result<Vec<ExternalMemory>, DiscoveryError> {
+        let mut items = Vec::new();
+        for path in collect_files(&self.root) {
+            if !path
+                .extension()
+                .is_some_and(|extension| extension == "json")
+            {
+                continue;
+            }
+            let raw = fs::read_to_string(&path)
+                .map_err(|error| DiscoveryError::Read(path.clone(), error))?;
+            let value: serde_json::Value = match serde_json::from_str(&raw) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            let content = value
+                .get("content")
+                .or_else(|| value.get("text"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if content.trim().is_empty() || looks_sensitive(content) || looks_sensitive(&raw) {
+                continue;
+            }
+            let mut hasher = Sha256::new();
+            hasher.update(raw.as_bytes());
+            let project_scope = value
+                .get("project")
+                .or_else(|| value.get("cwd"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| project_scope_from_path(&path));
+            items.push(ExternalMemory {
+                agent: self.agent,
+                path,
+                content: content.to_owned(),
+                content_sha256: format!("{:x}", hasher.finalize()),
+                project_scope,
+            });
+        }
+        Ok(items)
+    }
+
+    fn normalize(&self, item: &ExternalMemory, scope: MemoryScope) -> MemoryCandidate {
+        MarkdownSource {
+            agent: self.agent,
+            root: self.root.clone(),
+        }
+        .normalize(item, scope)
+    }
+}
+
 pub fn discover(home: impl AsRef<Path>) -> Vec<DiscoveredSource> {
     let home = home.as_ref();
-    [
+    let roots = [
         (AgentKind::Codex, home.join(".codex/memories")),
         (AgentKind::Claude, home.join(".claude/projects")),
         (AgentKind::Kimi, home.join(".kimi-code/memory")),
         (AgentKind::Generic, home.join(".agentmemory")),
-    ]
-    .into_iter()
-    .filter_map(|(agent, root)| MarkdownSource::new(agent, root).detect())
-    .collect()
+    ];
+    let mut sources = roots
+        .iter()
+        .filter_map(|(agent, root)| MarkdownSource::new(*agent, root).detect())
+        .collect::<Vec<_>>();
+    sources.extend(roots.into_iter().filter_map(|(agent, root)| {
+        JsonSource::new(agent, root)
+            .detect()
+            .filter(|source| source.file_count > 0)
+    }));
+    sources
 }
 
 fn collect_files(root: &Path) -> Vec<PathBuf> {
@@ -388,6 +476,26 @@ mod tests {
             .rationale
             .unwrap()
             .contains("Evidência/contexto importado"));
+    }
+
+    #[test]
+    fn scans_json_memory_with_project_scope_and_skips_sensitive_payloads() {
+        let root = tempdir().unwrap();
+        fs::write(
+            root.path().join("memory.json"),
+            r##"{"content":"# Projeto: Susu\nEscopo local","cwd":"/work/susu"}"##,
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("secret.json"),
+            r#"{"content":"client_secret=do-not-import"}"#,
+        )
+        .unwrap();
+        let source = JsonSource::new(AgentKind::Claude, root.path());
+        let items = source.scan().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].project_scope.as_deref(), Some("/work/susu"));
+        assert_eq!(items[0].content, "# Projeto: Susu\nEscopo local");
     }
 
     #[test]
