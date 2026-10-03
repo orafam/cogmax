@@ -323,6 +323,9 @@ pub fn extract_decision(content: &str) -> Option<ExtractedDecision> {
 }
 
 fn classify_memory(content: &str) -> MemoryKind {
+    if is_correction(content) {
+        return MemoryKind::Correction;
+    }
     if extract_decision(content).is_some() || extract_codex_outcome(content).is_some() {
         return MemoryKind::Decision;
     }
@@ -352,6 +355,18 @@ fn classify_memory(content: &str) -> MemoryKind {
     } else {
         MemoryKind::Reference
     }
+}
+
+fn is_correction(content: &str) -> bool {
+    content.lines().take(12).any(|line| {
+        let normalized = line.trim().to_lowercase();
+        normalized.starts_with("correção:")
+            || normalized.starts_with("correction:")
+            || normalized.starts_with("# correção")
+            || normalized.starts_with("## correção")
+            || normalized.starts_with("# correction")
+            || normalized.starts_with("## correction")
+    })
 }
 
 fn extract_codex_outcome(content: &str) -> Option<ExtractedDecision> {
@@ -511,6 +526,26 @@ mod tests {
         assert_eq!(
             classify_memory("Decisão: usar DuckDB\nMotivo: portabilidade"),
             MemoryKind::Decision
+        );
+    }
+
+    #[test]
+    fn classifies_corrections_and_leaves_ambiguous_notes_as_references() {
+        assert_eq!(
+            classify_memory("Correção: o serviço deve continuar offline-first"),
+            MemoryKind::Correction
+        );
+        assert_eq!(
+            classify_memory("Uma anotação sobre o serviço e suas possibilidades"),
+            MemoryKind::Reference
+        );
+    }
+
+    #[test]
+    fn correction_takes_precedence_over_decision_language() {
+        assert_eq!(
+            classify_memory("Correção: a decisão anterior sobre o banco foi revogada"),
+            MemoryKind::Correction
         );
     }
 }
