@@ -41,7 +41,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist, pattern: cogmax-*, merge-multiple: true }
-      - run: sha256sum dist/* > dist/SHA256SUMS
+      - run: cd dist && sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
