@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { auth0 } from "./auth0";
 
 const issuer = process.env.AUTH0_ISSUER_BASE_URL;
 const audience = process.env.MCP_AUDIENCE;
@@ -17,4 +18,14 @@ export async function authenticatedUser(request: Request) {
   const tenantId = tenantClaim(payload as Record<string, unknown>);
   if (!payload.sub) throw new Error("unauthorized");
   return { userId: payload.sub, tenantId };
+}
+
+export async function authenticatedUserOrSession(request: Request) {
+  try {
+    return await authenticatedUser(request);
+  } catch {
+    const session = await auth0.getSession();
+    if (!session?.user?.sub) throw new Error("unauthorized");
+    return { userId: session.user.sub, tenantId: tenantClaim(session.user as Record<string, unknown>) };
+  }
 }
