@@ -1,7 +1,7 @@
 {
   "name": "cogmax-vault-api",
   "private": true,
-  "scripts": {"dev": "next dev", "build": "next build", "vercel-build": "prisma migrate resolve --rolled-back 20261003013000_add_tenants || true; prisma migrate deploy && next build", "test": "vitest run", "lint": "next lint"},
+  "scripts": {"dev": "next dev", "build": "next build", "vercel-build": "prisma generate && prisma migrate resolve --rolled-back 20261003013000_add_tenants || true; prisma migrate deploy && next build", "test": "vitest run", "lint": "next lint"},
   "dependencies": {"@auth0/nextjs-auth0": "^4.7.0", "@prisma/client": "^6.16.2", "jose": "^6.1.0", "next": "^15.5.4", "react": "^19.1.1", "react-dom": "^19.1.1", "zod": "^4.1.5"},
   "devDependencies": {"@types/node": "^22.15.0", "@types/react": "^19.1.10", "@types/react-dom": "^19.1.7", "prisma": "^6.16.2", "typescript": "^5.9.2", "vitest": "^3.2.4"}
 }
