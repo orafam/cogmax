@@ -335,6 +335,7 @@ name = "cogmax-discovery"
 version = "0.1.0"
 dependencies = [
  "cogmax-domain",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror",
