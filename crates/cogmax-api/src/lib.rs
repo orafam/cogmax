@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 pub struct ApiState {
     pub service: Arc<MemoryService>,
     pub api_token: Option<String>,
+    pub api_user: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,15 +54,31 @@ pub struct LearnInput {
 }
 
 pub fn router(service: Arc<MemoryService>) -> Router {
-    router_with_token(service, std::env::var("COGMAX_API_TOKEN").ok())
+    router_with_identity(
+        service,
+        std::env::var("COGMAX_API_TOKEN").ok(),
+        std::env::var("COGMAX_API_USER").ok(),
+    )
 }
 
 pub fn router_with_token(service: Arc<MemoryService>, api_token: Option<String>) -> Router {
+    router_with_identity(service, api_token, None)
+}
+
+pub fn router_with_identity(
+    service: Arc<MemoryService>,
+    api_token: Option<String>,
+    api_user: Option<String>,
+) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/recall", post(recall))
         .route("/learn", post(learn))
-        .with_state(ApiState { service, api_token })
+        .with_state(ApiState {
+            service,
+            api_token,
+            api_user,
+        })
 }
 
 async fn health() -> &'static str {
@@ -74,7 +91,8 @@ async fn recall(
     Json(input): Json<RecallInput>,
 ) -> Result<Json<RecallOutput>, StatusCode> {
     authorize(&headers, &state)?;
-    let scope = MemoryScope::new(input.scope).expect("invalid scope");
+    let scope = MemoryScope::new(input.scope).map_err(|_| StatusCode::BAD_REQUEST)?;
+    authorize_scope(&scope, input.project.as_deref(), &state)?;
     let matches = state
         .service
         .recall_explained(RecallRequest {
@@ -104,12 +122,9 @@ async fn learn(
     Json(input): Json<LearnInput>,
 ) -> Result<Json<bool>, StatusCode> {
     authorize(&headers, &state)?;
-    let candidate = MemoryCandidate::new(
-        input.event_id,
-        MemoryScope::new(input.scope).expect("invalid scope"),
-        input.kind,
-        input.content,
-    );
+    let scope = MemoryScope::new(input.scope).map_err(|_| StatusCode::BAD_REQUEST)?;
+    authorize_scope(&scope, None, &state)?;
+    let candidate = MemoryCandidate::new(input.event_id, scope, input.kind, input.content);
     let result = state
         .service
         .learn(LearnRequest {
@@ -134,6 +149,29 @@ fn authorize(headers: &HeaderMap, state: &ApiState) -> Result<(), StatusCode> {
         .ok_or(StatusCode::UNAUTHORIZED)
 }
 
+fn authorize_scope(
+    scope: &MemoryScope,
+    project: Option<&str>,
+    state: &ApiState,
+) -> Result<(), StatusCode> {
+    let Some(user) = state.api_user.as_deref() else {
+        return Ok(());
+    };
+    let expected = format!("user:{user}");
+    let valid_scope = scope.as_str() == expected
+        || scope
+            .as_str()
+            .strip_prefix(&expected)
+            .is_some_and(|suffix| suffix.starts_with("/project:"));
+    if !valid_scope {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if project.is_some_and(|project| project.is_empty() || project.contains('/')) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
+
 pub fn local_router() -> Router {
     let store = Arc::new(Mutex::new(SqliteStore::in_memory().expect("storage")));
     router_with_token(Arc::new(MemoryService::new(store)), None)
@@ -148,7 +186,7 @@ mod tests {
     use cogmax_storage::SqliteStore;
     use tower::ServiceExt;
 
-    use super::router_with_token;
+    use super::{authorize_scope, router_with_identity, router_with_token, ApiState};
 
     #[test]
     fn local_router_is_constructible() {
@@ -174,5 +212,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn identity_cannot_cross_user_or_project_boundary() {
+        let store = Arc::new(Mutex::new(SqliteStore::in_memory().unwrap()));
+        let service = Arc::new(MemoryService::new(store));
+        let app = router_with_identity(service.clone(), Some("token".into()), Some("alice".into()));
+        let state = ApiState {
+            service,
+            api_token: Some("token".into()),
+            api_user: Some("alice".into()),
+        };
+        assert!(authorize_scope(
+            &cogmax_domain::scope::MemoryScope::new("user:alice/project:cogmax").unwrap(),
+            Some("cogmax"),
+            &state
+        )
+        .is_ok());
+        assert_eq!(
+            authorize_scope(
+                &cogmax_domain::scope::MemoryScope::new("user:bob").unwrap(),
+                None,
+                &state
+            ),
+            Err(axum::http::StatusCode::FORBIDDEN)
+        );
+        assert_eq!(
+            authorize_scope(
+                &cogmax_domain::scope::MemoryScope::new("user:alice").unwrap(),
+                Some("other/project"),
+                &state
+            ),
+            Err(axum::http::StatusCode::BAD_REQUEST)
+        );
+        let _ = app;
     }
 }

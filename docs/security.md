@@ -13,6 +13,11 @@ Quando essa variável existe:
 - a autorização não amplia o escopo solicitado: usuário e projeto continuam
   determinados pelo request e pelas regras de isolamento do serviço.
 
+Para ativar o limite de identidade, configure também `COGMAX_API_USER`. O
+usuário autenticado só pode acessar `user:<COGMAX_API_USER>` e seus projetos;
+tentativas de acessar outro usuário retornam `403 Forbidden`. Projetos com
+barra ou escopo inválido são rejeitados.
+
 Exemplo de chamada autenticada:
 
 ```text
