@@ -3,7 +3,8 @@
 import { useState } from "react";
 import "./styles.css";
 
-const setupMessage = "Give your agent the Cogmax skill. It remembers approved decisions, working preferences and project context, then brings the right context back when the work resumes.";
+const setupMessage = "Download the Cogmax skill, add it to your agent, and activate it. Cogmax handles the memory runtime for you — no MCP, API or database setup required.";
+const skillUrl = "https://github.com/orafam/cogmax/releases/download/v0.1.4/cogmax-skill-v0.1.4.tar.gz";
 
 export default function Home() {
   const [copied, setCopied] = useState(false);
@@ -22,7 +23,7 @@ export default function Home() {
         <div className="brand-lockup"><img src="/brain-logo.png" alt="Cogmax" /><span>cogmax</span><span className="brand-note">memory for agent work</span></div>
         <h1 id="page-title">Your agent should not start from zero.</h1>
         <p className="description">Cogmax keeps the context that makes work continuous: what was decided, why it was decided, and which project it belongs to.</p>
-        <div className="instruction-row"><p>{setupMessage}</p><button className="copy-button" onClick={copySetup}>{copied ? "Copied" : "Copy"} <span>{copied ? "✓" : "↗"}</span></button></div>
+        <div className="instruction-row"><p>{setupMessage}</p><div className="instruction-actions"><a className="download-button" href={skillUrl}>Download skill</a><button className="copy-button" onClick={copySetup}>{copied ? "Copied" : "Copy text"} <span>{copied ? "✓" : "↗"}</span></button></div></div>
         <div className="proof-row"><div><strong>Decisions</strong><span>with their rationale</span></div><div><strong>Projects</strong><span>kept in context</span></div><div><strong>One skill</strong><span>for every agent</span></div></div>
         <div className="tool-row"><span className="tool-label">Works quietly in the background</span><span className="separator">·</span><span className="tool-label">Local-first by default</span></div>
       </div>
