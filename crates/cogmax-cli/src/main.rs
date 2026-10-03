@@ -7,7 +7,9 @@ use std::{
 
 use cogmax_api::router;
 use cogmax_core::{LearnRequest, MemoryService};
-use cogmax_discovery::{discover, AgentKind, JsonSource, MarkdownSource, MemorySource};
+use cogmax_discovery::{
+    discover, inferred_confidence, AgentKind, JsonSource, MarkdownSource, MemorySource,
+};
 use cogmax_domain::{
     memory::{Authority, Confidence},
     scope::MemoryScope,
@@ -125,6 +127,7 @@ fn import_command() {
     }
     let service = MemoryService::new(store);
     let mut total = 0usize;
+    let mut skipped_low_confidence = 0usize;
     let mut by_agent = std::collections::BTreeMap::<String, usize>::new();
     let mut by_project_kind = std::collections::BTreeMap::<(String, String), usize>::new();
     for (markdown, json) in source_pairs(&home) {
@@ -142,6 +145,10 @@ fn import_command() {
                     })
                     .unwrap_or_else(|| scope.clone());
                 let candidate = source.normalize(&item, item_scope);
+                let confidence = inferred_confidence(candidate.kind, &candidate.content);
+                if confidence == Confidence::Low {
+                    skipped_low_confidence += 1;
+                }
                 let project = item.project_scope.unwrap_or_else(|| "local".into());
                 *by_project_kind
                     .entry((project, format!("{:?}", candidate.kind)))
@@ -150,7 +157,7 @@ fn import_command() {
                     let _ = service
                         .learn(LearnRequest {
                             candidate,
-                            confidence: Confidence::Medium,
+                            confidence,
                             authority: Authority::Inferred,
                         })
                         .expect("import failed");
@@ -164,6 +171,7 @@ fn import_command() {
                 "{}",
                 onboarding::import_preview(total, scope.as_str(), &by_agent, &by_project_kind)
             );
+            println!("  {skipped_low_confidence} files skipped: low confidence candidates");
         }
         "--apply" => println!("{} memory files processed into {}.", total, scope.as_str()),
         "--rebuild" => println!("{} memory files rebuilt into {}.", total, scope.as_str()),

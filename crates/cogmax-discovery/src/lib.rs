@@ -3,7 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use cogmax_domain::{candidate::MemoryCandidate, memory::MemoryKind, scope::MemoryScope};
+use cogmax_domain::{
+    candidate::MemoryCandidate,
+    memory::{Confidence, MemoryKind},
+    scope::MemoryScope,
+};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -322,6 +326,17 @@ pub fn extract_decision(content: &str) -> Option<ExtractedDecision> {
     })
 }
 
+pub fn inferred_confidence(kind: MemoryKind, content: &str) -> Confidence {
+    match kind {
+        MemoryKind::Decision => extract_decision(content)
+            .and_then(|decision| decision.rationale)
+            .map_or(Confidence::Medium, |_| Confidence::High),
+        MemoryKind::Project | MemoryKind::Procedure | MemoryKind::Correction => Confidence::Medium,
+        MemoryKind::Reference => Confidence::Low,
+        MemoryKind::Preference | MemoryKind::Fact => Confidence::Medium,
+    }
+}
+
 fn classify_memory(content: &str) -> MemoryKind {
     if is_correction(content) {
         return MemoryKind::Correction;
@@ -546,6 +561,25 @@ mod tests {
         assert_eq!(
             classify_memory("Correção: a decisão anterior sobre o banco foi revogada"),
             MemoryKind::Correction
+        );
+    }
+
+    #[test]
+    fn assigns_low_confidence_to_ambiguous_references() {
+        assert_eq!(
+            inferred_confidence(MemoryKind::Reference, "uma nota solta"),
+            Confidence::Low
+        );
+        assert_eq!(
+            inferred_confidence(MemoryKind::Decision, "Decisão: usar SQLite"),
+            Confidence::Medium
+        );
+        assert_eq!(
+            inferred_confidence(
+                MemoryKind::Decision,
+                "Decisão: usar SQLite\nMotivo: funciona offline"
+            ),
+            Confidence::High
         );
     }
 }
