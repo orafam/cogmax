@@ -134,22 +134,27 @@ fn import_command() {
     let service = MemoryService::new(store);
     let mut total = 0usize;
     let mut by_agent = std::collections::BTreeMap::<String, usize>::new();
+    let mut by_project_kind = std::collections::BTreeMap::<(String, String), usize>::new();
     for (markdown, json) in source_pairs(&home) {
         for source in [markdown, json] {
             let Ok(items) = source.scan() else { continue };
             for item in items {
                 total += 1;
                 *by_agent.entry(format!("{:?}", item.agent)).or_default() += 1;
+                let item_scope = item
+                    .project_scope
+                    .as_ref()
+                    .map(|project| {
+                        MemoryScope::new(format!("{}/project:{}", scope.as_str(), project))
+                            .expect("invalid project scope")
+                    })
+                    .unwrap_or_else(|| scope.clone());
+                let candidate = source.normalize(&item, item_scope);
+                let project = item.project_scope.unwrap_or_else(|| "local".into());
+                *by_project_kind
+                    .entry((project, format!("{:?}", candidate.kind)))
+                    .or_default() += 1;
                 if mode == "--apply" || mode == "--rebuild" {
-                    let item_scope = item
-                        .project_scope
-                        .as_ref()
-                        .map(|project| {
-                            MemoryScope::new(format!("{}/project:{}", scope.as_str(), project))
-                                .expect("invalid project scope")
-                        })
-                        .unwrap_or_else(|| scope.clone());
-                    let candidate = source.normalize(&item, item_scope);
                     let _ = service
                         .learn(LearnRequest {
                             candidate,
@@ -170,6 +175,10 @@ fn import_command() {
             );
             for (agent, count) in by_agent {
                 println!("  {agent}: {count} files");
+            }
+            println!("By project and kind:");
+            for ((project, kind), count) in by_project_kind {
+                println!("  {project} / {kind}: {count}");
             }
         }
         "--apply" => println!("{} memory files processed into {}.", total, scope.as_str()),
