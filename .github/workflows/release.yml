@@ -31,7 +31,9 @@ jobs:
         shell: pwsh
         run: New-Item -ItemType Directory -Force dist | Out-Null; Copy-Item target/${{ matrix.target }}/release/cogmax.exe dist/cogmax.exe; Compress-Archive -Path dist/cogmax.exe -DestinationPath cogmax-${{ matrix.name }}.zip
       - uses: actions/upload-artifact@v4
-        with: { name: cogmax-${{ matrix.name }}, path: cogmax-${{ matrix.name }}.${{ matrix.archive }} }
+        with:
+          name: cogmax-${{ matrix.name }}
+          path: cogmax-${{ matrix.name }}.${{ matrix.archive }}
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -40,4 +42,6 @@ jobs:
         with: { path: dist, pattern: cogmax-*, merge-multiple: true }
       - run: sha256sum dist/* > dist/SHA256SUMS
       - uses: softprops/action-gh-release@v2
-        with: { files: dist/*, generate_release_notes: true }
+        with:
+          files: dist/*
+          generate_release_notes: true
