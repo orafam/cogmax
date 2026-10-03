@@ -1,13 +1,13 @@
 use std::{
     env,
     net::SocketAddr,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
 use cogmax_api::router;
 use cogmax_core::{LearnRequest, MemoryService};
-use cogmax_discovery::{discover, AgentKind, MarkdownSource, MemorySource};
+use cogmax_discovery::{discover, AgentKind, JsonSource, MarkdownSource, MemorySource};
 use cogmax_domain::{
     memory::{Authority, Confidence},
     scope::MemoryScope,
@@ -68,17 +68,52 @@ fn discover_command() {
         return;
     }
     for source in sources {
+        let projects = MarkdownSource::new(source.agent, &source.root)
+            .scan()
+            .map(|items| {
+                items
+                    .into_iter()
+                    .filter_map(|item| item.project_scope)
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .unwrap_or_default();
         println!(
-            "{:?}: {} files at {}",
+            "{:?}: {} files at {}{}",
             source.agent,
             source.file_count,
-            source.root.display()
+            source.root.display(),
+            if projects.is_empty() {
+                String::new()
+            } else {
+                format!(" ({} projects)", projects.len())
+            }
         );
     }
 }
 
+fn source_pairs(home: &Path) -> Vec<(Box<dyn MemorySource>, Box<dyn MemorySource>)> {
+    [
+        (AgentKind::Codex, home.join(".codex/memories")),
+        (AgentKind::Claude, home.join(".claude/projects")),
+        (AgentKind::Kimi, home.join(".kimi-code/memory")),
+        (AgentKind::Generic, home.join(".agentmemory")),
+    ]
+    .into_iter()
+    .map(|(agent, root)| {
+        (
+            Box::new(MarkdownSource::new(agent, root.clone())) as Box<dyn MemorySource>,
+            Box::new(JsonSource::new(agent, root)) as Box<dyn MemorySource>,
+        )
+    })
+    .collect()
+}
+
 fn import_command() {
     let mode = env::args().nth(2).unwrap_or_else(|| "--preview".into());
+    if !matches!(mode.as_str(), "--preview" | "--apply" | "--rebuild") {
+        eprintln!("usage: cogmax import [--preview|--apply|--rebuild]");
+        std::process::exit(2);
+    }
     let home = env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
@@ -98,48 +133,48 @@ fn import_command() {
     }
     let service = MemoryService::new(store);
     let mut total = 0usize;
-    for (agent, directory) in [
-        (AgentKind::Codex, ".codex/memories"),
-        (AgentKind::Claude, ".claude/projects"),
-        (AgentKind::Kimi, ".kimi-code/memory"),
-        (AgentKind::Generic, ".agentmemory"),
-    ] {
-        let source = MarkdownSource::new(agent, home.join(directory));
-        let Ok(items) = source.scan() else { continue };
-        for item in items {
-            total += 1;
-            if mode == "--apply" || mode == "--rebuild" {
-                let item_scope = item
-                    .project_scope
-                    .as_ref()
-                    .map(|project| {
-                        MemoryScope::new(format!("{}/project:{}", scope.as_str(), project))
-                            .expect("invalid project scope")
-                    })
-                    .unwrap_or_else(|| scope.clone());
-                let candidate = source.normalize(&item, item_scope);
-                let _ = service
-                    .learn(LearnRequest {
-                        candidate,
-                        confidence: Confidence::Medium,
-                        authority: Authority::Inferred,
-                    })
-                    .expect("import failed");
+    let mut by_agent = std::collections::BTreeMap::<String, usize>::new();
+    for (markdown, json) in source_pairs(&home) {
+        for source in [markdown, json] {
+            let Ok(items) = source.scan() else { continue };
+            for item in items {
+                total += 1;
+                *by_agent.entry(format!("{:?}", item.agent)).or_default() += 1;
+                if mode == "--apply" || mode == "--rebuild" {
+                    let item_scope = item
+                        .project_scope
+                        .as_ref()
+                        .map(|project| {
+                            MemoryScope::new(format!("{}/project:{}", scope.as_str(), project))
+                                .expect("invalid project scope")
+                        })
+                        .unwrap_or_else(|| scope.clone());
+                    let candidate = source.normalize(&item, item_scope);
+                    let _ = service
+                        .learn(LearnRequest {
+                            candidate,
+                            confidence: Confidence::Medium,
+                            authority: Authority::Inferred,
+                        })
+                        .expect("import failed");
+                }
             }
         }
     }
     match mode.as_str() {
-        "--preview" => println!(
-            "{} memory files would be imported into {}.",
-            total,
-            scope.as_str()
-        ),
+        "--preview" => {
+            println!(
+                "{} memory files would be imported into {}.",
+                total,
+                scope.as_str()
+            );
+            for (agent, count) in by_agent {
+                println!("  {agent}: {count} files");
+            }
+        }
         "--apply" => println!("{} memory files processed into {}.", total, scope.as_str()),
         "--rebuild" => println!("{} memory files rebuilt into {}.", total, scope.as_str()),
-        _ => {
-            eprintln!("usage: cogmax import [--preview|--apply|--rebuild]");
-            std::process::exit(2);
-        }
+        _ => unreachable!(),
     }
 }
 
