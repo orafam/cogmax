@@ -14,6 +14,7 @@ use cogmax_domain::{
     memory::{Authority, Confidence},
     scope::MemoryScope,
 };
+use cogmax_export::git::sync_snapshot;
 use cogmax_export::{manifest, markdown, parquet, verify_manifest, SnapshotManifest};
 use cogmax_storage::SqliteStore;
 
@@ -53,8 +54,9 @@ async fn main() {
         "import" => import_command(),
         "export" => export_command(),
         "restore" => restore_command(),
+        "sync" => sync_command(),
         _ => {
-            eprintln!("usage: cogmax [serve|install|uninstall|start|stop|restart|status|inspect|discover|import --preview|import --apply|import --rebuild|export <dir>|restore <dir>|snapshot inspect <dir>]");
+            eprintln!("usage: cogmax [serve|install|uninstall|start|stop|restart|status|inspect|discover|import --preview|import --apply|import --rebuild|export <dir>|restore <dir>|snapshot inspect <dir>|sync git <repo> <snapshot>]");
             std::process::exit(2);
         }
     }
@@ -270,6 +272,25 @@ fn snapshot_command() {
     println!("Memories: {}", manifest.memory_count);
     println!("SHA-256: {}", manifest.sha256);
     println!("Status: verified");
+}
+
+fn sync_command() {
+    if env::args().nth(2).as_deref() != Some("git") {
+        eprintln!("usage: cogmax sync git <repo> <snapshot>");
+        std::process::exit(2);
+    }
+    let repository = env::args().nth(3).unwrap_or_else(|| ".".into());
+    let snapshot = env::args()
+        .nth(4)
+        .unwrap_or_else(|| "cogmax-snapshot".into());
+    sync_snapshot(
+        repository,
+        snapshot,
+        ".cogmax/snapshot",
+        "chore: sync Cogmax memory snapshot",
+    )
+    .unwrap_or_else(|error| exit_error(error.to_string()));
+    println!("Snapshot synchronized into Git. No push was performed.");
 }
 
 async fn serve() {

@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+pub mod git;
+
 #[derive(Debug, Error)]
 pub enum ExportError {
     #[error("arrow error: {0}")]
@@ -18,6 +20,8 @@ pub enum ExportError {
     Git(String),
     #[error("snapshot manifest does not match its content")]
     ManifestMismatch,
+    #[error("filesystem error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

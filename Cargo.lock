@@ -364,6 +364,7 @@ dependencies = [
  "cogmax-domain",
  "parquet",
  "serde",
+ "serde_json",
  "sha2",
  "thiserror",
 ]
