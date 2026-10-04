@@ -1,9 +1,9 @@
-use rusqlite::{params, Connection};
 use cogmax_domain::{
     candidate::MemoryCandidate,
     memory::{Memory, MemoryStatus},
     scope::MemoryScope,
 };
+use rusqlite::{params, Connection};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -76,6 +76,19 @@ impl SqliteStore {
 
     pub fn list_active(&self, scope: &MemoryScope) -> Result<Vec<Memory>, StorageError> {
         self.list_active_where("=", scope.as_str())
+    }
+
+    pub fn list_all(&self) -> Result<Vec<Memory>, StorageError> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT payload FROM memories ORDER BY id")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        rows.map(|row| {
+            let payload = row?;
+            serde_json::from_str(&payload)
+                .map_err(|error| StorageError::InvalidMemory(error.to_string()))
+        })
+        .collect()
     }
 
     pub fn list_active_prefix(&self, prefix: &str) -> Result<Vec<Memory>, StorageError> {

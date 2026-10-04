@@ -317,7 +317,9 @@ dependencies = [
  "cogmax-core",
  "cogmax-discovery",
  "cogmax-domain",
+ "cogmax-export",
  "cogmax-storage",
+ "serde_json",
  "sha2",
  "tokio",
 ]

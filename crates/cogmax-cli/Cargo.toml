@@ -12,6 +12,8 @@ cogmax-discovery = { path = "../cogmax-discovery" }
 cogmax-domain = { path = "../cogmax-domain" }
 cogmax-storage = { path = "../cogmax-storage" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+serde_json = "1"
+cogmax-export = { path = "../cogmax-export" }
 sha2 = "0.10"
 
 [[bin]]

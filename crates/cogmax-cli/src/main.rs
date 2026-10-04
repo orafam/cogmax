@@ -14,6 +14,7 @@ use cogmax_domain::{
     memory::{Authority, Confidence},
     scope::MemoryScope,
 };
+use cogmax_export::{manifest, markdown, parquet, verify_manifest, SnapshotManifest};
 use cogmax_storage::SqliteStore;
 
 mod install;
@@ -49,8 +50,10 @@ async fn main() {
         "inspect" => println!("Cogmax data: {}", data_path().display()),
         "discover" => discover_command(),
         "import" => import_command(),
+        "export" => export_command(),
+        "restore" => restore_command(),
         _ => {
-            eprintln!("usage: cogmax [serve|install|uninstall|start|stop|restart|status|inspect|discover|import --preview|import --apply|import --rebuild]");
+            eprintln!("usage: cogmax [serve|install|uninstall|start|stop|restart|status|inspect|discover|import --preview|import --apply|import --rebuild|export <dir>|restore <dir>]");
             std::process::exit(2);
         }
     }
@@ -177,6 +180,68 @@ fn import_command() {
         "--rebuild" => println!("{} memory files rebuilt into {}.", total, scope.as_str()),
         _ => unreachable!(),
     }
+}
+
+fn export_command() {
+    let directory = env::args()
+        .nth(2)
+        .unwrap_or_else(|| "cogmax-snapshot".into());
+    let directory = PathBuf::from(directory);
+    std::fs::create_dir_all(&directory).expect("cannot create snapshot directory");
+    let store = SqliteStore::open_path(data_path()).expect("cannot open Cogmax data");
+    let memories = store.list_all().expect("cannot read Cogmax memories");
+    let markdown_text = markdown(&memories);
+    let manifest = manifest(&markdown_text, memories.len());
+    std::fs::write(directory.join("memories.md"), &markdown_text)
+        .expect("cannot write Markdown snapshot");
+    std::fs::write(
+        directory.join("memories.json"),
+        serde_json::to_vec_pretty(&memories).expect("cannot encode JSON snapshot"),
+    )
+    .expect("cannot write JSON snapshot");
+    std::fs::write(
+        directory.join("memories.parquet"),
+        parquet(&memories).expect("cannot encode Parquet snapshot"),
+    )
+    .expect("cannot write Parquet snapshot");
+    std::fs::write(
+        directory.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).expect("cannot encode snapshot manifest"),
+    )
+    .expect("cannot write snapshot manifest");
+    println!(
+        "Exported {} memories to {}.",
+        memories.len(),
+        directory.display()
+    );
+}
+
+fn restore_command() {
+    let directory = PathBuf::from(
+        env::args()
+            .nth(2)
+            .unwrap_or_else(|| "cogmax-snapshot".into()),
+    );
+    let markdown_text = std::fs::read_to_string(directory.join("memories.md"))
+        .expect("cannot read Markdown snapshot");
+    let manifest: SnapshotManifest = serde_json::from_slice(
+        &std::fs::read(directory.join("manifest.json")).expect("cannot read snapshot manifest"),
+    )
+    .expect("invalid snapshot manifest");
+    verify_manifest(&markdown_text, &manifest).expect("snapshot manifest verification failed");
+    let memories: Vec<cogmax_domain::memory::Memory> = serde_json::from_slice(
+        &std::fs::read(directory.join("memories.json")).expect("cannot read JSON snapshot"),
+    )
+    .expect("invalid JSON snapshot");
+    let store = SqliteStore::open_path(data_path()).expect("cannot open Cogmax data");
+    for memory in &memories {
+        store.insert_memory(memory).expect("cannot restore memory");
+    }
+    println!(
+        "Restored {} memories from {}.",
+        memories.len(),
+        directory.display()
+    );
 }
 
 async fn serve() {
