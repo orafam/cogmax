@@ -25,6 +25,8 @@ export default {
       return Response.json({ error: "invalid scope" }, { status: 400 });
     }
     const id = env.MEMORY.idFromName(scope.split("/", 1)[0]!);
-    return env.MEMORY.get(id).fetch(new Request(new URL(request.url).pathname.replace("/v1", ""), request));
+    const objectUrl = new URL(request.url);
+    objectUrl.pathname = objectUrl.pathname.replace("/v1", "");
+    return env.MEMORY.get(id).fetch(new Request(objectUrl, request));
   },
 };
