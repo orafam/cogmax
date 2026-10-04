@@ -18,6 +18,14 @@ usuário autenticado só pode acessar `user:<COGMAX_API_USER>` e seus projetos;
 tentativas de acessar outro usuário retornam `403 Forbidden`. Projetos com
 barra ou escopo inválido são rejeitados.
 
+As rotas protegidas usam uma janela de 60 segundos. O limite padrão é 120
+requisições e pode ser ajustado com `COGMAX_RATE_LIMIT`. Ao exceder o limite,
+a API retorna `429 Too Many Requests`. A rota pública de health check não
+consome essa cota.
+
+O endpoint público de aprendizado aceita somente memórias com autoridade
+`Explicit`; memórias inferidas devem entrar pelo importador local controlado.
+
 Exemplo de chamada autenticada:
 
 ```text

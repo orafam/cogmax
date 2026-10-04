@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::State,
@@ -21,6 +24,13 @@ pub struct ApiState {
     pub service: Arc<MemoryService>,
     pub api_token: Option<String>,
     pub api_user: Option<String>,
+    rate_limit: Option<Arc<Mutex<RateWindow>>>,
+}
+
+struct RateWindow {
+    started: Instant,
+    requests: u32,
+    max_requests: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,6 +88,14 @@ pub fn router_with_identity(
             service,
             api_token,
             api_user,
+            rate_limit: Some(Arc::new(Mutex::new(RateWindow {
+                started: Instant::now(),
+                requests: 0,
+                max_requests: std::env::var("COGMAX_RATE_LIMIT")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(120),
+            }))),
         })
 }
 
@@ -124,6 +142,9 @@ async fn learn(
     authorize(&headers, &state)?;
     let scope = MemoryScope::new(input.scope).map_err(|_| StatusCode::BAD_REQUEST)?;
     authorize_scope(&scope, None, &state)?;
+    if input.authority != Authority::Explicit {
+        return Err(StatusCode::FORBIDDEN);
+    }
     let candidate = MemoryCandidate::new(input.event_id, scope, input.kind, input.content);
     let result = state
         .service
@@ -144,9 +165,22 @@ fn authorize(headers: &HeaderMap, state: &ApiState) -> Result<(), StatusCode> {
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "));
-    (provided == Some(expected))
-        .then_some(())
-        .ok_or(StatusCode::UNAUTHORIZED)
+    if provided != Some(expected) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let Some(rate_limit) = &state.rate_limit else {
+        return Ok(());
+    };
+    let mut window = rate_limit.lock().expect("rate limiter mutex poisoned");
+    if window.started.elapsed() >= Duration::from_secs(60) {
+        window.started = Instant::now();
+        window.requests = 0;
+    }
+    if window.requests >= window.max_requests {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+    window.requests += 1;
+    Ok(())
 }
 
 fn authorize_scope(
@@ -223,6 +257,7 @@ mod tests {
             service,
             api_token: Some("token".into()),
             api_user: Some("alice".into()),
+            rate_limit: None,
         };
         assert!(authorize_scope(
             &cogmax_domain::scope::MemoryScope::new("user:alice/project:cogmax").unwrap(),
