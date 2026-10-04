@@ -20,6 +20,8 @@ pub enum ExportError {
     Git(String),
     #[error("snapshot manifest does not match its content")]
     ManifestMismatch,
+    #[error("a different Cogmax snapshot already exists at the destination")]
+    SnapshotConflict,
     #[error("filesystem error: {0}")]
     Io(#[from] std::io::Error),
 }

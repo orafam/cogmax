@@ -25,6 +25,15 @@ pub fn sync_snapshot(
             "repository has uncommitted changes".into(),
         ));
     }
+    let existing_manifest = destination.join("manifest.json");
+    if existing_manifest.is_file() {
+        let existing: SnapshotManifest = serde_json::from_slice(&fs::read(&existing_manifest)?)
+            .map_err(|error| ExportError::Git(format!("invalid destination manifest: {error}")))?;
+        if existing == manifest {
+            return Ok(());
+        }
+        return Err(ExportError::SnapshotConflict);
+    }
     fs::create_dir_all(&destination)?;
     for name in [
         "memories.md",
