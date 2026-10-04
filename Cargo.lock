@@ -361,6 +361,7 @@ dependencies = [
  "arrow-schema",
  "cogmax-domain",
  "parquet",
+ "serde",
  "sha2",
  "thiserror",
 ]

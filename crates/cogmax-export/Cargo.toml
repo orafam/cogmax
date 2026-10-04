@@ -11,4 +11,4 @@ parquet = { version = "56", features = ["arrow"] }
 sha2 = "0.10"
 cogmax-domain = { path = "../cogmax-domain" }
 thiserror = "2"
-
+serde = { version = "1", features = ["derive"] }
