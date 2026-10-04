@@ -1,0 +1,11 @@
+name = "cogmax-memory"
+main = "src/index.ts"
+compatibility_date = "2026-10-04"
+
+[[durable_objects.bindings]]
+name = "MEMORY"
+class_name = "MemoryDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MemoryDurableObject"]

@@ -1,0 +1,13 @@
+{
+  "name": "cogmax-cloudflare-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20261001.0",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.40.0"
+  }
+}
