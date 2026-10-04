@@ -48,12 +48,13 @@ async fn main() {
             }
         }
         "inspect" => println!("Cogmax data: {}", data_path().display()),
+        "snapshot" => snapshot_command(),
         "discover" => discover_command(),
         "import" => import_command(),
         "export" => export_command(),
         "restore" => restore_command(),
         _ => {
-            eprintln!("usage: cogmax [serve|install|uninstall|start|stop|restart|status|inspect|discover|import --preview|import --apply|import --rebuild|export <dir>|restore <dir>]");
+            eprintln!("usage: cogmax [serve|install|uninstall|start|stop|restart|status|inspect|discover|import --preview|import --apply|import --rebuild|export <dir>|restore <dir>|snapshot inspect <dir>]");
             std::process::exit(2);
         }
     }
@@ -233,6 +234,9 @@ fn restore_command() {
         &std::fs::read(directory.join("memories.json")).expect("cannot read JSON snapshot"),
     )
     .expect("invalid JSON snapshot");
+    if memories.len() != manifest.memory_count {
+        panic!("snapshot memory count does not match manifest");
+    }
     let store = SqliteStore::open_path(data_path()).expect("cannot open Cogmax data");
     for memory in &memories {
         store.insert_memory(memory).expect("cannot restore memory");
@@ -242,6 +246,30 @@ fn restore_command() {
         memories.len(),
         directory.display()
     );
+}
+
+fn snapshot_command() {
+    if env::args().nth(2).as_deref() != Some("inspect") {
+        eprintln!("usage: cogmax snapshot inspect <dir>");
+        std::process::exit(2);
+    }
+    let directory = PathBuf::from(
+        env::args()
+            .nth(3)
+            .unwrap_or_else(|| "cogmax-snapshot".into()),
+    );
+    let manifest: SnapshotManifest = serde_json::from_slice(
+        &std::fs::read(directory.join("manifest.json")).expect("cannot read snapshot manifest"),
+    )
+    .expect("invalid snapshot manifest");
+    let markdown_text = std::fs::read_to_string(directory.join("memories.md"))
+        .expect("cannot read Markdown snapshot");
+    verify_manifest(&markdown_text, &manifest).expect("snapshot manifest verification failed");
+    println!("Snapshot: {}", directory.display());
+    println!("Schema: {}", manifest.schema_version);
+    println!("Memories: {}", manifest.memory_count);
+    println!("SHA-256: {}", manifest.sha256);
+    println!("Status: verified");
 }
 
 async fn serve() {
