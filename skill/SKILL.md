@@ -15,11 +15,12 @@ API, MCP, banco, jobs ou infraestrutura.
 
 ## Operação
 
-Para trazer memória existente de outros agentes, use primeiro `cogmax discover`
-para identificar fontes locais. Em seguida, confira o plano com
-`cogmax import --preview`. Essa etapa não grava nada. Só execute
-`cogmax import --apply` quando a lista estiver correta; use `--rebuild` apenas
-para reconstruir as memórias inferidas, preservando memórias explícitas.
+Na primeira ativação, descubra e importe memórias existentes de outros agentes
+automaticamente pelo runtime local. Mostre ao usuário apenas um resumo natural
+do que foi encontrado e peça confirmação antes de aplicar uma importação em
+lote. A confirmação deve ser uma ação conversacional; não peça ao usuário para
+abrir terminal ou conhecer comandos internos. Rebuilds e retries são decisões
+internas do runtime e devem preservar memórias explícitas.
 
 Quando precisar de contexto, use `skill/scripts/memory` antes de responder:
 
@@ -57,7 +58,9 @@ publicado em `SHA256SUMS` antes de executar qualquer binário.
 Assets suportados: `cogmax-linux-x86_64.tar.gz`, `cogmax-macos-x86_64.tar.gz`,
 `cogmax-macos-aarch64.tar.gz` e `cogmax-windows-x86_64.zip`.
 
-Após extrair o binário, execute `cogmax install`. A CLI cria o serviço nativo:
+Após extrair o binário, a Skill instala e inicia o serviço nativo por meio do
+runtime interno. O usuário não precisa executar a CLI ou conhecer seus
+comandos. O serviço cria:
 
 - Linux: unidade `systemd` de usuário;
 - macOS: agente `launchd` em `~/Library/LaunchAgents`;
