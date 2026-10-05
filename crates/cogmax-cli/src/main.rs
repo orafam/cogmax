@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::{
     env,
     net::SocketAddr,
@@ -205,15 +206,23 @@ fn onboarding_command() {
                     .unwrap_or_else(|| PathBuf::from(".")),
             )
             .len();
+            let confirmation_digest = onboarding_digest();
             println!(
-                "{{\"initialized\":{},\"sources\":{}}}",
-                initialized, source_count
+                "{{\"initialized\":{},\"sources\":{},\"confirmation_digest\":\"{}\"}}",
+                initialized, source_count, confirmation_digest
             );
         }
         "--apply" => {
             if marker.exists() {
                 println!("{{\"already_initialized\":true}}");
                 return;
+            }
+            let expected = env::args()
+                .position(|arg| arg == "--confirm")
+                .and_then(|index| env::args().nth(index + 1));
+            if expected.as_deref() != Some(onboarding_digest().as_str()) {
+                eprintln!("onboarding confirmation is missing or stale");
+                std::process::exit(1);
             }
             std::fs::create_dir_all(data_dir()).expect("cannot create Cogmax data directory");
             import_mode("--apply");
@@ -225,6 +234,31 @@ fn onboarding_command() {
             std::process::exit(2);
         }
     }
+}
+
+fn onboarding_digest() -> String {
+    let home = env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let mut entries = Vec::new();
+    for (markdown, json) in source_pairs(&home) {
+        for source in [markdown, json] {
+            if let Ok(items) = source.scan() {
+                for item in items {
+                    entries.push(format!(
+                        "{:?}|{}|{}",
+                        item.agent,
+                        item.path.display(),
+                        item.content_sha256
+                    ));
+                }
+            }
+        }
+    }
+    entries.sort();
+    let mut hasher = Sha256::new();
+    hasher.update(entries.join("\n").as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn export_command() {
