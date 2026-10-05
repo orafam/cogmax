@@ -74,7 +74,11 @@ fn recall_orders_decisions_and_projects_before_references() {
     for (event, kind, content) in [
         ("reference", MemoryKind::Reference, "Cogmax usa SQLite"),
         ("project", MemoryKind::Project, "Projeto Cogmax usa SQLite"),
-        ("decision", MemoryKind::Decision, "Decisão: Cogmax usa SQLite"),
+        (
+            "decision",
+            MemoryKind::Decision,
+            "Decisão: Cogmax usa SQLite",
+        ),
     ] {
         assert!(service
             .learn(LearnRequest {
@@ -137,4 +141,153 @@ fn recall_can_filter_by_kind_and_project_scope() {
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].kind, MemoryKind::Project);
     assert_eq!(result[0].scope, project_scope);
+}
+
+#[test]
+fn conflicting_decisions_remain_visible_until_explicitly_superseded() {
+    let service = MemoryService::new(Arc::new(Mutex::new(SqliteStore::in_memory().unwrap())));
+    let scope = MemoryScope::new("user:alice").unwrap();
+    let first = MemoryCandidate::new(
+        "decision-1".into(),
+        scope.clone(),
+        MemoryKind::Decision,
+        "Decisão: usar SQLite".into(),
+    );
+    let second = MemoryCandidate::new(
+        "decision-2".into(),
+        scope.clone(),
+        MemoryKind::Decision,
+        "Decisão: usar DuckDB".into(),
+    );
+    assert!(service
+        .learn(LearnRequest {
+            candidate: first,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+    assert!(service
+        .learn(LearnRequest {
+            candidate: second,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+
+    let decisions = service
+        .recall(RecallRequest {
+            scope: scope.clone(),
+            query: "Decisão".into(),
+            kind: Some(MemoryKind::Decision),
+            project: None,
+        })
+        .unwrap();
+    assert_eq!(decisions.len(), 2);
+
+    service
+        .supersede(
+            &decisions[0].id,
+            &decisions[1].id,
+            "correção explícita do usuário",
+        )
+        .unwrap();
+    assert_eq!(
+        service
+            .recall(RecallRequest {
+                scope,
+                query: "Decisão".into(),
+                kind: Some(MemoryKind::Decision),
+                project: None,
+            })
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn supersession_requires_an_active_replacement_and_is_auditable() {
+    let store = Arc::new(Mutex::new(SqliteStore::in_memory().unwrap()));
+    let service = MemoryService::new(store.clone());
+    let scope = MemoryScope::new("user:alice").unwrap();
+    let old = MemoryCandidate::new(
+        "old".into(),
+        scope.clone(),
+        MemoryKind::Decision,
+        "Decisão: SQLite".into(),
+    );
+    let new = MemoryCandidate::new(
+        "new".into(),
+        scope,
+        MemoryKind::Decision,
+        "Decisão: DuckDB".into(),
+    );
+    assert!(service
+        .learn(LearnRequest {
+            candidate: old,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+    assert!(service
+        .learn(LearnRequest {
+            candidate: new,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+    let memories = store.lock().unwrap().list_all().unwrap();
+    service
+        .supersede(&memories[0].id, &memories[1].id, "mudança aprovada")
+        .unwrap();
+    let record = store
+        .lock()
+        .unwrap()
+        .supersession(&memories[0].id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.replacement_id, memories[1].id);
+    assert_eq!(record.reason, "mudança aprovada");
+}
+
+#[test]
+fn explained_recall_reports_matching_terms_and_scope_filters() {
+    let service = MemoryService::new(Arc::new(Mutex::new(SqliteStore::in_memory().unwrap())));
+    let scope = MemoryScope::new("user:alice").unwrap();
+    let project_scope = MemoryScope::new("user:alice/project:cogmax").unwrap();
+    let memory = MemoryCandidate::new(
+        "explained-1".into(),
+        project_scope,
+        MemoryKind::Decision,
+        "Decisão: usar SQLite no Cogmax".into(),
+    );
+    assert!(service
+        .learn(LearnRequest {
+            candidate: memory,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+
+    let matches = service
+        .recall_explained(RecallRequest {
+            scope,
+            query: "SQLite Cogmax".into(),
+            kind: Some(MemoryKind::Decision),
+            project: Some("cogmax".into()),
+        })
+        .unwrap();
+    assert_eq!(matches.len(), 1);
+    assert!(matches[0]
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("2 termos")));
+    assert!(matches[0]
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("escopo de projeto")));
+    assert!(matches[0]
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("autoridade Explicit")));
 }

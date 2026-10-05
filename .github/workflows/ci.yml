@@ -1,0 +1,53 @@
+name: Cogmax CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/worker/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+
+  skill-smoke:
+    runs-on: ubuntu-latest
+    needs: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --locked --package cogmax-cli
+      - name: Test installed Skill outside checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          data="$(mktemp -d)"
+          digest="$(COGMAX_BIN="$PWD/target/debug/cogmax" COGMAX_DATA_DIR="$data" skill/scripts/memory onboard --summary | tee "$root/summary.json" | jq -r .confirmation_digest)"
+          COGMAX_BIN="$PWD/target/debug/cogmax" COGMAX_DATA_DIR="$data" skill/scripts/memory onboard --apply --confirm "$digest"
+          COGMAX_BIN="$PWD/target/debug/cogmax" COGMAX_DATA_DIR="$data" skill/scripts/memory onboard --apply --confirm "$digest" | grep -q 'already_initialized'

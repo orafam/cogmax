@@ -304,6 +304,9 @@ dependencies = [
  "cogmax-domain",
  "cogmax-storage",
  "serde",
+ "tokio",
+ "tower",
+ "uuid",
 ]
 
 [[package]]
@@ -315,8 +318,11 @@ dependencies = [
  "cogmax-core",
  "cogmax-discovery",
  "cogmax-domain",
+ "cogmax-export",
  "cogmax-storage",
+ "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
 ]
 
@@ -335,6 +341,7 @@ name = "cogmax-discovery"
 version = "0.1.0"
 dependencies = [
  "cogmax-domain",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror",
@@ -358,6 +365,8 @@ dependencies = [
  "arrow-schema",
  "cogmax-domain",
  "parquet",
+ "serde",
+ "serde_json",
  "sha2",
  "thiserror",
 ]

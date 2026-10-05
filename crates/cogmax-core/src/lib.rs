@@ -29,6 +29,12 @@ pub struct LearnRequest {
     pub authority: Authority,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecallMatch {
+    pub memory: Memory,
+    pub reasons: Vec<String>,
+}
+
 pub struct MemoryService {
     store: Arc<Mutex<SqliteStore>>,
 }
@@ -87,6 +93,38 @@ impl MemoryService {
         Ok(memories)
     }
 
+    pub fn recall_explained(&self, request: RecallRequest) -> Result<Vec<RecallMatch>, CoreError> {
+        let query = request.query.clone();
+        let project = request.project.clone();
+        let kind = request.kind;
+        self.recall(request)?
+            .into_iter()
+            .map(|memory| {
+                let lower = memory.content.to_lowercase();
+                let matched = query
+                    .to_lowercase()
+                    .split_whitespace()
+                    .filter(|term| lower.contains(*term))
+                    .count();
+                let mut reasons = Vec::new();
+                if query.trim().is_empty() {
+                    reasons.push("consulta sem filtro textual".into());
+                } else {
+                    reasons.push(format!("{} termos da consulta correspondidos", matched));
+                }
+                if project.is_some() {
+                    reasons.push("escopo de projeto aplicado".into());
+                }
+                if let Some(kind) = kind {
+                    reasons.push(format!("tipo {:?} solicitado", kind));
+                }
+                reasons.push(format!("autoridade {:?}", memory.authority));
+                reasons.push(format!("confiança {:?}", memory.confidence));
+                Ok(RecallMatch { memory, reasons })
+            })
+            .collect()
+    }
+
     pub fn learn(&self, request: LearnRequest) -> Result<bool, CoreError> {
         if request.confidence == Confidence::Low {
             return Ok(false);
@@ -111,6 +149,28 @@ impl MemoryService {
             .lock()
             .expect("storage mutex poisoned")
             .set_status(id, MemoryStatus::Revoked)?;
+        Ok(())
+    }
+
+    pub fn scope_for(&self, id: &uuid::Uuid) -> Result<MemoryScope, CoreError> {
+        Ok(self
+            .store
+            .lock()
+            .expect("storage mutex poisoned")
+            .get_memory(id)?
+            .scope)
+    }
+
+    pub fn supersede(
+        &self,
+        replaced_id: &uuid::Uuid,
+        replacement_id: &uuid::Uuid,
+        reason: &str,
+    ) -> Result<(), CoreError> {
+        self.store
+            .lock()
+            .expect("storage mutex poisoned")
+            .supersede_memory(replaced_id, replacement_id, reason)?;
         Ok(())
     }
 }

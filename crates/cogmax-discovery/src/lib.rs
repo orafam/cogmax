@@ -3,11 +3,15 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use cogmax_domain::{
+    candidate::MemoryCandidate,
+    memory::{Confidence, MemoryKind},
+    scope::MemoryScope,
+};
 use sha2::{Digest, Sha256};
-use cogmax_domain::{candidate::MemoryCandidate, memory::MemoryKind, scope::MemoryScope};
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AgentKind {
     Codex,
     Claude,
@@ -124,17 +128,105 @@ impl MemorySource for MarkdownSource {
     }
 }
 
+pub struct JsonSource {
+    agent: AgentKind,
+    root: PathBuf,
+}
+
+impl JsonSource {
+    pub fn new(agent: AgentKind, root: impl Into<PathBuf>) -> Self {
+        Self {
+            agent,
+            root: root.into(),
+        }
+    }
+}
+
+impl MemorySource for JsonSource {
+    fn agent(&self) -> AgentKind {
+        self.agent
+    }
+
+    fn detect(&self) -> Option<DiscoveredSource> {
+        self.root.is_dir().then(|| DiscoveredSource {
+            agent: self.agent,
+            root: self.root.clone(),
+            file_count: collect_files(&self.root)
+                .iter()
+                .filter(|path| path.extension().is_some_and(|e| e == "json"))
+                .count(),
+        })
+    }
+
+    fn scan(&self) -> Result<Vec<ExternalMemory>, DiscoveryError> {
+        let mut items = Vec::new();
+        for path in collect_files(&self.root) {
+            if !path
+                .extension()
+                .is_some_and(|extension| extension == "json")
+            {
+                continue;
+            }
+            let raw = fs::read_to_string(&path)
+                .map_err(|error| DiscoveryError::Read(path.clone(), error))?;
+            let value: serde_json::Value = match serde_json::from_str(&raw) {
+                Ok(value) => value,
+                Err(_) => continue,
+            };
+            let content = value
+                .get("content")
+                .or_else(|| value.get("text"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if content.trim().is_empty() || looks_sensitive(content) || looks_sensitive(&raw) {
+                continue;
+            }
+            let mut hasher = Sha256::new();
+            hasher.update(raw.as_bytes());
+            let project_scope = value
+                .get("project")
+                .or_else(|| value.get("cwd"))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| project_scope_from_path(&path));
+            items.push(ExternalMemory {
+                agent: self.agent,
+                path,
+                content: content.to_owned(),
+                content_sha256: format!("{:x}", hasher.finalize()),
+                project_scope,
+            });
+        }
+        Ok(items)
+    }
+
+    fn normalize(&self, item: &ExternalMemory, scope: MemoryScope) -> MemoryCandidate {
+        MarkdownSource {
+            agent: self.agent,
+            root: self.root.clone(),
+        }
+        .normalize(item, scope)
+    }
+}
+
 pub fn discover(home: impl AsRef<Path>) -> Vec<DiscoveredSource> {
     let home = home.as_ref();
-    [
+    let roots = [
         (AgentKind::Codex, home.join(".codex/memories")),
         (AgentKind::Claude, home.join(".claude/projects")),
         (AgentKind::Kimi, home.join(".kimi-code/memory")),
         (AgentKind::Generic, home.join(".agentmemory")),
-    ]
-    .into_iter()
-    .filter_map(|(agent, root)| MarkdownSource::new(agent, root).detect())
-    .collect()
+    ];
+    let mut sources = roots
+        .iter()
+        .filter_map(|(agent, root)| MarkdownSource::new(*agent, root).detect())
+        .collect::<Vec<_>>();
+    sources.extend(roots.into_iter().filter_map(|(agent, root)| {
+        JsonSource::new(agent, root)
+            .detect()
+            .filter(|source| source.file_count > 0)
+    }));
+    sources
 }
 
 fn collect_files(root: &Path) -> Vec<PathBuf> {
@@ -234,7 +326,21 @@ pub fn extract_decision(content: &str) -> Option<ExtractedDecision> {
     })
 }
 
+pub fn inferred_confidence(kind: MemoryKind, content: &str) -> Confidence {
+    match kind {
+        MemoryKind::Decision => extract_decision(content)
+            .and_then(|decision| decision.rationale)
+            .map_or(Confidence::Medium, |_| Confidence::High),
+        MemoryKind::Project | MemoryKind::Procedure | MemoryKind::Correction => Confidence::Medium,
+        MemoryKind::Reference => Confidence::Low,
+        MemoryKind::Preference | MemoryKind::Fact => Confidence::Medium,
+    }
+}
+
 fn classify_memory(content: &str) -> MemoryKind {
+    if is_correction(content) {
+        return MemoryKind::Correction;
+    }
     if extract_decision(content).is_some() || extract_codex_outcome(content).is_some() {
         return MemoryKind::Decision;
     }
@@ -264,6 +370,18 @@ fn classify_memory(content: &str) -> MemoryKind {
     } else {
         MemoryKind::Reference
     }
+}
+
+fn is_correction(content: &str) -> bool {
+    content.lines().take(12).any(|line| {
+        let normalized = line.trim().to_lowercase();
+        normalized.starts_with("correção:")
+            || normalized.starts_with("correction:")
+            || normalized.starts_with("# correção")
+            || normalized.starts_with("## correção")
+            || normalized.starts_with("# correction")
+            || normalized.starts_with("## correction")
+    })
 }
 
 fn extract_codex_outcome(content: &str) -> Option<ExtractedDecision> {
@@ -391,6 +509,26 @@ mod tests {
     }
 
     #[test]
+    fn scans_json_memory_with_project_scope_and_skips_sensitive_payloads() {
+        let root = tempdir().unwrap();
+        fs::write(
+            root.path().join("memory.json"),
+            r##"{"content":"# Projeto: Susu\nEscopo local","cwd":"/work/susu"}"##,
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("secret.json"),
+            r#"{"content":"client_secret=do-not-import"}"#,
+        )
+        .unwrap();
+        let source = JsonSource::new(AgentKind::Claude, root.path());
+        let items = source.scan().unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].project_scope.as_deref(), Some("/work/susu"));
+        assert_eq!(items[0].content, "# Projeto: Susu\nEscopo local");
+    }
+
+    #[test]
     fn classifies_project_and_procedure_without_overriding_decisions() {
         assert_eq!(
             classify_memory("# Projeto: Cogmax\nEscopo do produto"),
@@ -403,6 +541,45 @@ mod tests {
         assert_eq!(
             classify_memory("Decisão: usar DuckDB\nMotivo: portabilidade"),
             MemoryKind::Decision
+        );
+    }
+
+    #[test]
+    fn classifies_corrections_and_leaves_ambiguous_notes_as_references() {
+        assert_eq!(
+            classify_memory("Correção: o serviço deve continuar offline-first"),
+            MemoryKind::Correction
+        );
+        assert_eq!(
+            classify_memory("Uma anotação sobre o serviço e suas possibilidades"),
+            MemoryKind::Reference
+        );
+    }
+
+    #[test]
+    fn correction_takes_precedence_over_decision_language() {
+        assert_eq!(
+            classify_memory("Correção: a decisão anterior sobre o banco foi revogada"),
+            MemoryKind::Correction
+        );
+    }
+
+    #[test]
+    fn assigns_low_confidence_to_ambiguous_references() {
+        assert_eq!(
+            inferred_confidence(MemoryKind::Reference, "uma nota solta"),
+            Confidence::Low
+        );
+        assert_eq!(
+            inferred_confidence(MemoryKind::Decision, "Decisão: usar SQLite"),
+            Confidence::Medium
+        );
+        assert_eq!(
+            inferred_confidence(
+                MemoryKind::Decision,
+                "Decisão: usar SQLite\nMotivo: funciona offline"
+            ),
+            Confidence::High
         );
     }
 }
