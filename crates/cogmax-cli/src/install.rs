@@ -69,7 +69,10 @@ fn install_skill(binary: &Path) -> io::Result<()> {
         .ok_or_else(|| io::Error::other("invalid installation path"))?;
     let skill_root = root.join("share/cogmax/skill");
     fs::create_dir_all(skill_root.join("scripts"))?;
-    fs::write(skill_root.join("SKILL.md"), include_bytes!("../../../skill/SKILL.md"))?;
+    fs::write(
+        skill_root.join("SKILL.md"),
+        include_bytes!("../../../skill/SKILL.md"),
+    )?;
     let script = skill_root.join("scripts/memory");
     fs::write(&script, include_bytes!("../../../skill/scripts/memory"))?;
     #[cfg(unix)]
@@ -86,7 +89,10 @@ pub fn uninstall() -> Result<(), String> {
     let p = platform()?;
     match p {
         Platform::Linux => {
-            let _ = run("systemctl", &["--user", "disable", "--now", "cogmax.service"]);
+            let _ = run(
+                "systemctl",
+                &["--user", "disable", "--now", "cogmax.service"],
+            );
             let _ = fs::remove_file(service_path(p));
         }
         Platform::Macos => {
@@ -218,7 +224,10 @@ mod tests {
     #[test]
     fn install_path_can_use_a_configured_root() {
         let root = PathBuf::from("/tmp/cogmax-test");
-        assert_eq!(install_path_with_root(Platform::Linux, Some(&root)), root.join("bin/cogmax"));
+        assert_eq!(
+            install_path_with_root(Platform::Linux, Some(&root)),
+            root.join("bin/cogmax")
+        );
     }
 
     #[test]
