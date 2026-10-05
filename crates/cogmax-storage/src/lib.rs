@@ -86,6 +86,26 @@ impl SqliteStore {
         Ok(())
     }
 
+    pub fn insert_memories_transactional(
+        &mut self,
+        memories: &[Memory],
+    ) -> Result<(), StorageError> {
+        let transaction = self.connection.transaction()?;
+        for memory in memories {
+            transaction.execute(
+                "INSERT OR REPLACE INTO memories (id, scope, status, payload) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    memory.id.to_string(),
+                    memory.scope.as_str(),
+                    serde_json::to_string(&memory.status)?,
+                    serde_json::to_string(memory)?
+                ],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn list_active(&self, scope: &MemoryScope) -> Result<Vec<Memory>, StorageError> {
         self.list_active_where("=", scope.as_str())
     }

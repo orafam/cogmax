@@ -22,6 +22,11 @@ lote. A confirmação deve ser uma ação conversacional; não peça ao usuário
 abrir terminal ou conhecer comandos internos. Rebuilds e retries são decisões
 internas do runtime e devem preservar memórias explícitas.
 
+Se um backup ou sincronização falhar, mantenha a memória local disponível e
+retente depois usando o mesmo snapshot. Nunca substitua automaticamente um
+snapshot remoto diferente; informe o conflito ao agente para resolução
+explícita.
+
 Internamente, a Skill consulta `memory onboard --summary` na primeira ativação.
 Depois da confirmação conversacional, reutiliza o `confirmation_digest` do
 resumo em `memory onboard --apply --confirm <digest>`. Se a fonte mudar, gere

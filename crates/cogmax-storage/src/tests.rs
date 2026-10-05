@@ -1,9 +1,9 @@
-use rusqlite::Connection;
 use cogmax_domain::{
     candidate::MemoryCandidate,
     memory::{Authority, Confidence, Memory, MemoryKind, MemoryStatus},
     scope::MemoryScope,
 };
+use rusqlite::Connection;
 
 use super::SqliteStore;
 
@@ -98,4 +98,31 @@ fn rebuild_import_removes_only_inferred_memories() {
             "importada".into(),
         ))
         .unwrap());
+}
+
+#[test]
+fn transactional_restore_inserts_the_complete_snapshot() {
+    let mut store = store();
+    let memories = vec![
+        Memory::new(
+            MemoryScope::new("user:alice").unwrap(),
+            MemoryKind::Decision,
+            "SQLite".into(),
+            Confidence::High,
+            Authority::Explicit,
+        ),
+        Memory::new(
+            MemoryScope::new("user:alice/project:cogmax").unwrap(),
+            MemoryKind::Project,
+            "Cogmax".into(),
+            Confidence::High,
+            Authority::Explicit,
+        ),
+    ];
+    store.insert_memories_transactional(&memories).unwrap();
+    let mut restored = store.list_all().unwrap();
+    let mut expected = memories;
+    restored.sort_by_key(|memory| memory.id);
+    expected.sort_by_key(|memory| memory.id);
+    assert_eq!(restored, expected);
 }

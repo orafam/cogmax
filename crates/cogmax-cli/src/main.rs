@@ -315,10 +315,10 @@ fn restore_command() {
     if memories.len() != manifest.memory_count {
         panic!("snapshot memory count does not match manifest");
     }
-    let store = SqliteStore::open_path(data_path()).expect("cannot open Cogmax data");
-    for memory in &memories {
-        store.insert_memory(memory).expect("cannot restore memory");
-    }
+    let mut store = SqliteStore::open_path(data_path()).expect("cannot open Cogmax data");
+    store
+        .insert_memories_transactional(&memories)
+        .expect("cannot restore memory");
     println!(
         "Restored {} memories from {}.",
         memories.len(),
