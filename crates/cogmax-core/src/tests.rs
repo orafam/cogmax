@@ -184,7 +184,13 @@ fn conflicting_decisions_remain_visible_until_explicitly_superseded() {
         .unwrap();
     assert_eq!(decisions.len(), 2);
 
-    service.supersede(&decisions[0].id).unwrap();
+    service
+        .supersede(
+            &decisions[0].id,
+            &decisions[1].id,
+            "correção explícita do usuário",
+        )
+        .unwrap();
     assert_eq!(
         service
             .recall(RecallRequest {
@@ -197,6 +203,51 @@ fn conflicting_decisions_remain_visible_until_explicitly_superseded() {
             .len(),
         1
     );
+}
+
+#[test]
+fn supersession_requires_an_active_replacement_and_is_auditable() {
+    let store = Arc::new(Mutex::new(SqliteStore::in_memory().unwrap()));
+    let service = MemoryService::new(store.clone());
+    let scope = MemoryScope::new("user:alice").unwrap();
+    let old = MemoryCandidate::new(
+        "old".into(),
+        scope.clone(),
+        MemoryKind::Decision,
+        "Decisão: SQLite".into(),
+    );
+    let new = MemoryCandidate::new(
+        "new".into(),
+        scope,
+        MemoryKind::Decision,
+        "Decisão: DuckDB".into(),
+    );
+    assert!(service
+        .learn(LearnRequest {
+            candidate: old,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+    assert!(service
+        .learn(LearnRequest {
+            candidate: new,
+            confidence: Confidence::High,
+            authority: Authority::Explicit,
+        })
+        .unwrap());
+    let memories = store.lock().unwrap().list_all().unwrap();
+    service
+        .supersede(&memories[0].id, &memories[1].id, "mudança aprovada")
+        .unwrap();
+    let record = store
+        .lock()
+        .unwrap()
+        .supersession(&memories[0].id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.replacement_id, memories[1].id);
+    assert_eq!(record.reason, "mudança aprovada");
 }
 
 #[test]

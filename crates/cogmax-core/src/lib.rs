@@ -152,11 +152,16 @@ impl MemoryService {
         Ok(())
     }
 
-    pub fn supersede(&self, id: &uuid::Uuid) -> Result<(), CoreError> {
+    pub fn supersede(
+        &self,
+        replaced_id: &uuid::Uuid,
+        replacement_id: &uuid::Uuid,
+        reason: &str,
+    ) -> Result<(), CoreError> {
         self.store
             .lock()
             .expect("storage mutex poisoned")
-            .set_status(id, MemoryStatus::Superseded)?;
+            .supersede_memory(replaced_id, replacement_id, reason)?;
         Ok(())
     }
 }

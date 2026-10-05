@@ -16,6 +16,13 @@ pub enum StorageError {
     InvalidMemory(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Supersession {
+    pub replaced_id: uuid::Uuid,
+    pub replacement_id: uuid::Uuid,
+    pub reason: String,
+}
+
 pub struct SqliteStore {
     connection: Connection,
 }
@@ -45,6 +52,11 @@ impl SqliteStore {
                 scope TEXT NOT NULL,
                 status TEXT NOT NULL,
                 payload TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS supersessions (
+                replaced_id TEXT PRIMARY KEY,
+                replacement_id TEXT NOT NULL,
+                reason TEXT NOT NULL
             );",
         )?;
         Ok(store)
@@ -135,6 +147,64 @@ impl SqliteStore {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn supersede_memory(
+        &self,
+        replaced_id: &uuid::Uuid,
+        replacement_id: &uuid::Uuid,
+        reason: &str,
+    ) -> Result<(), StorageError> {
+        let active = serde_json::to_string(&MemoryStatus::Active)?;
+        let replaced_status: String = self.connection.query_row(
+            "SELECT status FROM memories WHERE id = ?1",
+            params![replaced_id.to_string()],
+            |row| row.get(0),
+        )?;
+        let replacement_status: String = self.connection.query_row(
+            "SELECT status FROM memories WHERE id = ?1",
+            params![replacement_id.to_string()],
+            |row| row.get(0),
+        )?;
+        if replaced_status != active
+            || replacement_status != active
+            || replaced_id == replacement_id
+        {
+            return Err(StorageError::InvalidMemory(
+                "supersession requires distinct active memories".into(),
+            ));
+        }
+        self.set_status(replaced_id, MemoryStatus::Superseded)?;
+        self.connection.execute(
+            "INSERT OR REPLACE INTO supersessions (replaced_id, replacement_id, reason) VALUES (?1, ?2, ?3)",
+            params![replaced_id.to_string(), replacement_id.to_string(), reason],
+        )?;
+        Ok(())
+    }
+
+    pub fn supersession(
+        &self,
+        replaced_id: &uuid::Uuid,
+    ) -> Result<Option<Supersession>, StorageError> {
+        let result = self.connection.query_row(
+            "SELECT replacement_id, reason FROM supersessions WHERE replaced_id = ?1",
+            params![replaced_id.to_string()],
+            |row| {
+                let replacement_id: String = row.get(0)?;
+                let reason: String = row.get(1)?;
+                Ok((replacement_id, reason))
+            },
+        );
+        match result {
+            Ok((replacement_id, reason)) => Ok(Some(Supersession {
+                replaced_id: *replaced_id,
+                replacement_id: uuid::Uuid::parse_str(&replacement_id)
+                    .map_err(|error| StorageError::InvalidMemory(error.to_string()))?,
+                reason,
+            })),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(error) => Err(StorageError::Sqlite(error)),
+        }
     }
 
     pub fn reset_inferred_imports(&self) -> Result<usize, StorageError> {
