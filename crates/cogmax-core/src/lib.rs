@@ -152,6 +152,15 @@ impl MemoryService {
         Ok(())
     }
 
+    pub fn scope_for(&self, id: &uuid::Uuid) -> Result<MemoryScope, CoreError> {
+        Ok(self
+            .store
+            .lock()
+            .expect("storage mutex poisoned")
+            .get_memory(id)?
+            .scope)
+    }
+
     pub fn supersede(
         &self,
         replaced_id: &uuid::Uuid,

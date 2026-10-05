@@ -26,6 +26,9 @@ consome essa cota.
 O endpoint público de aprendizado aceita somente memórias com autoridade
 `Explicit`; memórias inferidas devem entrar pelo importador local controlado.
 
+As operações autenticadas `POST /supersede` e `POST /revoke` também exigem o
+Bearer token e verificam o escopo do usuário antes de alterar uma memória.
+
 Exemplo de chamada autenticada:
 
 ```text

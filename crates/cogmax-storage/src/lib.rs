@@ -103,6 +103,16 @@ impl SqliteStore {
         .collect()
     }
 
+    pub fn get_memory(&self, id: &uuid::Uuid) -> Result<Memory, StorageError> {
+        let payload: String = self.connection.query_row(
+            "SELECT payload FROM memories WHERE id = ?1",
+            params![id.to_string()],
+            |row| row.get(0),
+        )?;
+        serde_json::from_str(&payload)
+            .map_err(|error| StorageError::InvalidMemory(error.to_string()))
+    }
+
     pub fn list_active_prefix(&self, prefix: &str) -> Result<Vec<Memory>, StorageError> {
         self.list_active_where("LIKE", &format!("{prefix}%"))
     }

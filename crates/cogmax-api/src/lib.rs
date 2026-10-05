@@ -63,6 +63,13 @@ pub struct LearnInput {
     pub authority: Authority,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SupersedeInput {
+    pub replaced_id: String,
+    pub replacement_id: String,
+    pub reason: String,
+}
+
 pub fn router(service: Arc<MemoryService>) -> Router {
     router_with_identity(
         service,
@@ -84,6 +91,8 @@ pub fn router_with_identity(
         .route("/health", get(health))
         .route("/recall", post(recall))
         .route("/learn", post(learn))
+        .route("/supersede", post(supersede))
+        .route("/revoke", post(revoke))
         .with_state(ApiState {
             service,
             api_token,
@@ -157,6 +166,48 @@ async fn learn(
     Ok(Json(result))
 }
 
+async fn supersede(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(input): Json<SupersedeInput>,
+) -> Result<Json<bool>, StatusCode> {
+    authorize(&headers, &state)?;
+    let replaced_id =
+        uuid::Uuid::parse_str(&input.replaced_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let replacement_id =
+        uuid::Uuid::parse_str(&input.replacement_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    if input.reason.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    authorize_memory_scope(&state, &replaced_id)?;
+    authorize_memory_scope(&state, &replacement_id)?;
+    state
+        .service
+        .supersede(&replaced_id, &replacement_id, &input.reason)
+        .map_err(|_| StatusCode::CONFLICT)?;
+    Ok(Json(true))
+}
+
+async fn revoke(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Json(input): Json<IdInput>,
+) -> Result<Json<bool>, StatusCode> {
+    authorize(&headers, &state)?;
+    let id = uuid::Uuid::parse_str(&input.id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    authorize_memory_scope(&state, &id)?;
+    state
+        .service
+        .forget(&id)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    Ok(Json(true))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IdInput {
+    pub id: String,
+}
+
 fn authorize(headers: &HeaderMap, state: &ApiState) -> Result<(), StatusCode> {
     let Some(expected) = state.api_token.as_deref() else {
         return Ok(());
@@ -206,6 +257,14 @@ fn authorize_scope(
     Ok(())
 }
 
+fn authorize_memory_scope(state: &ApiState, id: &uuid::Uuid) -> Result<(), StatusCode> {
+    let scope = state
+        .service
+        .scope_for(id)
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+    authorize_scope(&scope, None, state)
+}
+
 pub fn local_router() -> Router {
     let store = Arc::new(Mutex::new(SqliteStore::in_memory().expect("storage")));
     router_with_token(Arc::new(MemoryService::new(store)), None)
@@ -246,6 +305,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn supersede_rejects_invalid_uuid_after_authentication() {
+        let store = Arc::new(Mutex::new(SqliteStore::in_memory().unwrap()));
+        let app = router_with_token(
+            Arc::new(MemoryService::new(store)),
+            Some("test-token".into()),
+        );
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/supersede")
+                    .method("POST")
+                    .header("authorization", "Bearer test-token")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"replaced_id":"bad","replacement_id":"bad","reason":"x"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
     }
 
     #[test]
