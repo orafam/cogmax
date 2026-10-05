@@ -22,10 +22,13 @@ mod install;
 mod onboarding;
 
 fn data_path() -> PathBuf {
+    data_dir().join("cogmax.sqlite3")
+}
+
+fn data_dir() -> PathBuf {
     env::var_os("COGMAX_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(".cogmax"))
-        .join("cogmax.sqlite3")
 }
 
 #[tokio::main]
@@ -52,6 +55,7 @@ async fn main() {
         "snapshot" => snapshot_command(),
         "discover" => discover_command(),
         "import" => import_command(),
+        "onboard" => onboarding_command(),
         "export" => export_command(),
         "restore" => restore_command(),
         "sync" => sync_command(),
@@ -110,7 +114,11 @@ fn source_pairs(home: &Path) -> Vec<(Box<dyn MemorySource>, Box<dyn MemorySource
 
 fn import_command() {
     let mode = env::args().nth(2).unwrap_or_else(|| "--preview".into());
-    if !matches!(mode.as_str(), "--preview" | "--apply" | "--rebuild") {
+    import_mode(&mode);
+}
+
+fn import_mode(mode: &str) {
+    if !matches!(mode, "--preview" | "--apply" | "--rebuild") {
         eprintln!("usage: cogmax import [--preview|--apply|--rebuild]");
         std::process::exit(2);
     }
@@ -171,7 +179,7 @@ fn import_command() {
             }
         }
     }
-    match mode.as_str() {
+    match mode {
         "--preview" => {
             println!(
                 "{}",
@@ -182,6 +190,40 @@ fn import_command() {
         "--apply" => println!("{} memory files processed into {}.", total, scope.as_str()),
         "--rebuild" => println!("{} memory files rebuilt into {}.", total, scope.as_str()),
         _ => unreachable!(),
+    }
+}
+
+fn onboarding_command() {
+    let mode = env::args().nth(2).unwrap_or_else(|| "--summary".into());
+    let marker = data_dir().join("onboarding.json");
+    match mode.as_str() {
+        "--summary" => {
+            let initialized = marker.exists();
+            let source_count = discover(
+                env::var_os("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(".")),
+            )
+            .len();
+            println!(
+                "{{\"initialized\":{},\"sources\":{}}}",
+                initialized, source_count
+            );
+        }
+        "--apply" => {
+            if marker.exists() {
+                println!("{{\"already_initialized\":true}}");
+                return;
+            }
+            std::fs::create_dir_all(data_dir()).expect("cannot create Cogmax data directory");
+            import_mode("--apply");
+            std::fs::write(&marker, b"{\"version\":1}\n").expect("cannot write onboarding marker");
+            println!("{{\"initialized\":true}}");
+        }
+        _ => {
+            eprintln!("usage: cogmax onboard [--summary|--apply]");
+            std::process::exit(2);
+        }
     }
 }
 

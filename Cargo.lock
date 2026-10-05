@@ -321,6 +321,7 @@ dependencies = [
  "cogmax-storage",
  "serde_json",
  "sha2",
+ "tempfile",
  "tokio",
 ]
 

@@ -16,6 +16,10 @@ else
   exit 1
 fi
 
+if [[ "$command_name" == "onboard" ]]; then
+  exec "$binary" onboard "${@}"
+fi
+
 ensure_runtime() {
   mkdir -p "$data_dir"
   if curl --silent --fail --max-time 1 "${base_url}/health" >/dev/null 2>&1; then
@@ -68,7 +72,7 @@ case "$command_name" in
       -H 'content-type: application/json' -d "$payload"
     ;;
   *)
-    echo "usage: memory recall --query text [--project name] [--kind Kind] | memory learn --content text --kind Kind" >&2
+    echo "usage: memory onboard [--summary|--apply] | memory recall --query text [--project name] [--kind Kind] | memory learn --content text --kind Kind" >&2
     exit 2
     ;;
 esac

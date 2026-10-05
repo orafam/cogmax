@@ -22,6 +22,10 @@ lote. A confirmação deve ser uma ação conversacional; não peça ao usuário
 abrir terminal ou conhecer comandos internos. Rebuilds e retries são decisões
 internas do runtime e devem preservar memórias explícitas.
 
+Internamente, a Skill consulta `memory onboard --summary` na primeira ativação.
+Depois da confirmação conversacional, usa `memory onboard --apply`. Esses são
+detalhes internos e nunca devem ser apresentados como instruções ao usuário.
+
 Quando precisar de contexto, use `skill/scripts/memory` antes de responder:
 
 ```text
